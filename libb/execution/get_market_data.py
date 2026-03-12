@@ -64,6 +64,114 @@ def download_data_on_given_range(ticker: str, start_date: date | str, end_date: 
                        Try setting more valid API keys in your environment or checking your internet.""")
 
 
+# ------------------------------------------------------------------
+# BULK DOWNLOADS — fetch multiple tickers in a single API call
+# ------------------------------------------------------------------
+
+def download_bulk_data_on_given_date(
+    tickers: list[str], date: date | str
+) -> dict[str, MarketDataObject]:
+    """
+    Download market data for multiple tickers on a single date using one
+    yfinance API call instead of N separate calls.
+
+    Returns a dict keyed by original ticker symbol. Tickers that fail
+    (e.g. no data on that day) are silently skipped and absent from
+    the result.
+    """
+    start_date = pd.Timestamp(date)
+    end_date = start_date + pd.Timedelta(days=1)
+    return _extract_bulk_snapshots(tickers, start_date, end_date)
+
+
+def download_bulk_data_on_given_range(
+    tickers: list[str], start_date: date | str, end_date: date | str
+) -> dict[str, MarketHistoryObject]:
+    """
+    Download historical data for multiple tickers over a date range
+    using one yfinance API call.
+
+    Returns a dict keyed by original ticker symbol.
+    """
+    start_ts = pd.Timestamp(start_date)
+    end_ts = pd.Timestamp(end_date)
+
+    # yfinance accepts the original ticker format with dots (NOKIA.HE, VOD.L, BRK.B, etc.)
+    yf_tickers = tickers[:]
+
+    try:
+        raw = yf.download(
+            yf_tickers,
+            start=start_ts,
+            end=end_ts,
+            auto_adjust=True,
+            progress=False,
+            group_by="ticker",
+        )
+    except Exception as e:
+        raise RuntimeError(f"Bulk yfinance range download failed: {e}") from e
+
+    results: dict[str, MarketHistoryObject] = {}
+    for orig_ticker in tickers:
+        try:
+            df = raw[orig_ticker] if isinstance(raw.columns, pd.MultiIndex) else raw
+            if df is None or df.empty:
+                raise ValueError(f"No range data for {orig_ticker}")
+            results[orig_ticker] = {
+                "Low": df["Low"].round(2),
+                "High": df["High"].round(2),
+                "Close": df["Close"].round(2),
+                "Open": df["Open"].round(2),
+                "Volume": df["Volume"].fillna(0).astype(int),
+                "Ticker": orig_ticker,
+                "start_date": str(start_date),
+                "end_date": str(end_date),
+            }
+        except Exception as e:
+            print(f"Bulk range extraction skipped for {orig_ticker}: {e}")
+    return results
+
+
+def _extract_bulk_snapshots(
+    tickers: list[str], start_date: pd.Timestamp, end_date: pd.Timestamp
+) -> dict[str, MarketDataObject]:
+    """Internal helper: download & slice a bulk yfinance result into snapshots."""
+    # yfinance uses the original ticker format with dots (NOKIA.HE, VOD.L, BRK.B, etc.)
+    # Do NOT replace dots with hyphens – that breaks exchange suffixes.
+    yf_tickers = tickers[:]
+
+    try:
+        raw = yf.download(
+            yf_tickers,
+            start=start_date,
+            end=end_date,
+            auto_adjust=True,
+            progress=False,
+            group_by="ticker",
+        )
+    except Exception as e:
+        raise RuntimeError(f"Bulk yfinance snapshot download failed: {e}") from e
+
+    results: dict[str, MarketDataObject] = {}
+    for orig_ticker in tickers:
+        try:
+            df = raw[orig_ticker] if isinstance(raw.columns, pd.MultiIndex) else raw
+            if df is None or df.empty:
+                raise ValueError(f"No snapshot data for {orig_ticker}")
+            results[orig_ticker] = {
+                "Ticker": orig_ticker,
+                "Low": float(df["Low"].iloc[0]),
+                "High": float(df["High"].iloc[0]),
+                "Close": float(df["Close"].iloc[0]),
+                "Open": float(df["Open"].iloc[0]),
+                "Volume": int(df["Volume"].iloc[0]),
+            }
+        except Exception as e:
+            print(f"Bulk snapshot extraction skipped for {orig_ticker}: {e}")
+    return results
+
+# ------------------------------------------------------------------
+
 def download_yf_data(ticker: str, start_date: date | str, end_date: date | str) -> MarketHistoryObject:
 
     # account for YF ticker differences
@@ -203,9 +311,11 @@ def download_stooq_data(
 
     ticker = ticker.lower()
 
-    # If no exchange suffix, assume US
+    # If no exchange suffix, assume US (.us); otherwise use as-is
     if "." not in ticker:
         ticker_stooq = f"{ticker}.us"
+    else:
+        ticker_stooq = ticker
 
     # Convert dates to YYYYMMDD format
     start_str = pd.Timestamp(start_date).strftime("%Y%m%d")

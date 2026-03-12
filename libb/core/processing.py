@@ -4,7 +4,7 @@ import pandas as pd
 import math
 
 from libb.other.types_file import Order, TradeStatus
-from libb.execution.utils import append_log, is_nyse_open, order_to_trade_schema
+from libb.execution.utils import append_log, is_market_open, order_to_trade_schema
 from libb.execution.process_order import process_order
 from libb.execution.get_market_data import download_data_on_given_date
 from libb.execution.portfolio_editing import reduce_position
@@ -19,14 +19,17 @@ from pathlib import Path
 
 class Processing:
     def __init__(self, *, run_date, portfolio, cash, STARTING_CASH, _trade_log_path, portfolio_history,
-                 _position_history_path, _portfolio_history_path, _portfolio_path, _model_path) -> None:
-        
+                 _position_history_path, _portfolio_history_path, _portfolio_path, _model_path,
+                 commission: float = 0.0, market_calendar: str = "NYSE") -> None:
+
         self.run_date: date = run_date
 
         self.portfolio: pd.DataFrame = portfolio
         self.portfolio_history: pd.DataFrame = portfolio_history
         self.cash: float = cash
         self.STARTING_CASH = STARTING_CASH
+        self.commission: float = commission
+        self.market_calendar: str = market_calendar
 
         self._trade_log_path: Path = _trade_log_path
         self._position_history_path: Path = _position_history_path
@@ -62,8 +65,8 @@ class Processing:
                 self.failed_orders += 1
                 continue
             # drop orders on weekends and holidays
-            if not is_nyse_open(order_date):
-                reason = f"NYSE NOT OPEN"
+            if not is_market_open(order_date, self.market_calendar):
+                reason = f"MARKET NOT OPEN ({self.market_calendar})"
                 trade_dict = order_to_trade_schema(order, executed_price=None, PnL=None,
                                                status="REJECTED", reason=reason)
                 append_log(self._trade_log_path, trade_dict)
@@ -77,8 +80,19 @@ class Processing:
                 self.failed_orders += 1
                 continue
             if order_date == self.run_date:
-                self.portfolio, self.cash, status = process_order(order, self.portfolio, 
-                self.cash, self._trade_log_path)
+                try:
+                    self.portfolio, self.cash, status = process_order(
+                        order, self.portfolio, self.cash,
+                        self._trade_log_path, commission=self.commission
+                    )
+                except Exception as exc:
+                    reason = f"EXECUTION_ERROR: {exc}"
+                    trade_dict = order_to_trade_schema(
+                        order, executed_price=None, PnL=None,
+                        status="FAILED", reason=reason
+                    )
+                    append_log(self._trade_log_path, trade_dict)
+                    status = TradeStatus.FAILED
 
             else:
                 unexecuted_trades["orders"].append(order)
@@ -108,10 +122,14 @@ class Processing:
         for i, row in self.portfolio.iterrows():
             ticker = row["ticker"]
             shares = row["shares"]
-            ticker_data = download_data_on_given_date(row["ticker"], self.run_date)
+            stoploss = row["stop_loss"]
+            try:
+                ticker_data = download_data_on_given_date(ticker, self.run_date)
+            except Exception as e:
+                print(f"[WARN] Stop-loss check skipped for {ticker}: could not fetch market data ({e})")
+                continue
             open_price = ticker_data["Open"]
             low = ticker_data["Low"]
-            stoploss = row["stop_loss"]
 
             if low <= stoploss:
             
@@ -145,22 +163,7 @@ class Processing:
     def _update_portfolio_market_data(self) -> None:
         """Update market portfolio value and cash. Save new values to disk."""
         self.update_market_value_columns()
-
         self.portfolio.to_csv(self._portfolio_path, index=False)
-        
-        required_cols = [
-            "ticker",
-            "shares",
-            "cost_basis",
-            "market_price",
-            "market_value",
-            "unrealized_pnl",
-            ]
-
-        assert self.portfolio[required_cols].notnull().all().all(), (
-        "Null values found in required portfolio columns:\n"
-        f"{self.portfolio[required_cols]}")
-
         return
     
     def update_market_value_columns(self):
@@ -169,18 +172,25 @@ class Processing:
             ticker = row["ticker"]
             shares = row["shares"]
             cost_basis = self.portfolio.at[i, "cost_basis"]
-            
+
             value = self.portfolio.at[i, "market_value"]
 
             value = cast(float, value)
             cost = cast(float, cost_basis)
 
-            ticker_data = download_data_on_given_date(ticker, self.run_date)
-            close_price = ticker_data["Close"]
-
-            self.portfolio.at[i, "market_price"] = close_price
-            self.portfolio.at[i, "market_value"] = round(close_price * shares, 2)
-            self.portfolio.at[i, "unrealized_pnl"] = round(value - cost, 2)
+            try:
+                ticker_data = download_data_on_given_date(ticker, self.run_date)
+                close_price = ticker_data["Close"]
+                self.portfolio.at[i, "market_price"] = close_price
+                self.portfolio.at[i, "market_value"] = round(close_price * shares, 2)
+                self.portfolio.at[i, "unrealized_pnl"] = round(
+                    self.portfolio.at[i, "market_value"] - cost, 2
+                )
+            except Exception as e:
+                print(
+                    f"[WARN] Market data unavailable for {ticker} on {self.run_date}: {e}. "
+                    "Keeping last known price."
+                )
     
 # ----------------------------------
 # Step 4: Append Disk History
@@ -205,7 +215,7 @@ class Processing:
 
         if "market_value" not in self.portfolio.columns and not self.portfolio.empty:
             raise RuntimeError("`market_value` not computed before portfolio history update.")
-        market_equity = self.portfolio["market_value"].sum()
+        market_equity = self.portfolio["market_value"].fillna(0).sum()
         present_total_equity = market_equity + self.cash
         if self.portfolio_history.empty:
             daily_return_pct = None

@@ -7,7 +7,7 @@ import json
 import pandas as pd
 
 from libb.other.types_file import ModelSnapshot, Log, DiskLayout
-from libb.execution.utils import is_nyse_open
+from libb.execution.utils import is_market_open
 from libb.metrics.sentiment_metrics import analyze_sentiment
 from libb.user_data.news import  _get_portfolio_news
 from libb.user_data.logs import _recent_execution_logs
@@ -27,15 +27,21 @@ class LIBBmodel:
     Stateful trading model that manages portfolio data, metrics, research,
     and daily execution for a single run date.
     """
-    def __init__(self, model_path: Path | str, starting_cash: float = 10_000, 
-                 run_date: str | date | None = None):
+    def __init__(self, model_path: Path | str, starting_cash: float = 10_0,
+                 run_date: str | date | None = None,
+                 commission: float = 0.0,
+                 market_calendar: str = "NYSE"):
         """
         Initialize the trading model and load persisted state.
 
         Args:
             model_path: Root directory where all model data is stored.
             starting_cash: Initial cash balance if no portfolio exists.
-            date: Run date for the model. If None, defaults to today.
+            run_date: Run date for the model. If None, defaults to today.
+            commission: Flat fee deducted per filled order (buy or sell). Defaults to 0.0.
+            market_calendar: pandas_market_calendars exchange name used to decide
+                whether a given date is a trading day (e.g. "NYSE", "XETRA").
+                Defaults to "NYSE".
         """
         if run_date is None:
             run_date = pd.Timestamp.now().date()
@@ -45,6 +51,8 @@ class LIBBmodel:
         self.start_time= datetime.now(UTC)
 
         self.STARTING_CASH: float = starting_cash
+        self.commission: float = commission
+        self.market_calendar: str = market_calendar
         self._root: Path = Path(model_path)
         self._model_path: str = str(model_path)
         self.run_date: date = run_date
@@ -89,10 +97,30 @@ class LIBBmodel:
         self._ensure_file(self.layout.behavior_path, "[]")
         self._ensure_file(self.layout.performance_path, "[]")
         self._ensure_file(self.layout.sentiment_path, "[]")
+
+        # run config (written once, never overwritten)
+        self._ensure_file(
+            self.layout.config_path,
+            json.dumps({
+                "starting_cash": self.STARTING_CASH,
+                "commission": self.commission,
+                "market_calendar": self.market_calendar,
+            }),
+        )
         return
     
     def _hydrate_from_disk(self) -> None:
         "Match objects in memory from disk state."
+        # Inherit run config (written once at first start, persists across resets)
+        if self.layout.config_path.exists():
+            try:
+                cfg = json.loads(self.layout.config_path.read_text(encoding="utf-8"))
+                self.STARTING_CASH   = float(cfg.get("starting_cash",   self.STARTING_CASH))
+                self.commission      = float(cfg.get("commission",       self.commission))
+                self.market_calendar = str  (cfg.get("market_calendar",  self.market_calendar))
+            except Exception:
+                pass  # keep values from __init__ if config is unreadable
+
         self.portfolio: pd.DataFrame = self.reader.load_csv(self.layout.portfolio_path)
         self.cash: float = self.reader.load_cash()
         self.portfolio_history: pd.DataFrame = self.reader.load_csv(self.layout.portfolio_history_path)
@@ -189,7 +217,8 @@ class LIBBmodel:
                                         portfolio_history=self.portfolio_history, 
                                          _position_history_path=self.layout.position_history_path,
                                           _portfolio_history_path=self.layout.portfolio_history_path,
-                                        _portfolio_path=self.layout.portfolio_path, _model_path=self._model_path)
+                                        _portfolio_path=self.layout.portfolio_path, _model_path=self._model_path,
+                                        commission=self.commission, market_calendar=self.market_calendar)
 
         self.pending_trades = processing.processing(self.pending_trades)
 
@@ -230,7 +259,7 @@ class LIBBmodel:
                     f"the last recorded date ({last_run_date}). Dates must move forward."
                 )
 
-        if is_nyse_open(self.run_date):
+        if is_market_open(self.run_date, self.market_calendar):
             try:
                 self._process()
                 self._save_new_logging_file()
@@ -243,7 +272,7 @@ class LIBBmodel:
                     self.writer._load_snapshot_to_disk(self.STARTUP_DISK_SNAPSHOT)
                 raise SystemError("Processing failed: disk state has been reset to snapshot created on startup.") from e
         else:
-            self._save_new_logging_file(status="SKIPPED", error="nyse closed on run date")
+            self._save_new_logging_file(status="SKIPPED", error=f"{self.market_calendar} closed on run date")
 
 # ----------------------------------
 # Disk Writing
@@ -270,9 +299,9 @@ class LIBBmodel:
     def _create_log_dict(self, status: str, error: Exception | str) -> Log:
 
 
-        portfolio_equity = self.portfolio["market_value"].sum() + self.cash
+        portfolio_equity = self.portfolio["market_value"].fillna(0).sum() + self.cash
 
-        nyse_open_on_date = is_nyse_open(self.run_date)
+        nyse_open_on_date = is_market_open(self.run_date, self.market_calendar)
 
         NY_TZ = ZoneInfo("America/New_York")
         MARKET_CLOSE = time(16, 0) # 4PM

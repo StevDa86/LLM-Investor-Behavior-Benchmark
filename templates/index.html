@@ -1,0 +1,2020 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM-IBB Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            surface: { DEFAULT: '#0f1117', card: '#161b27', border: '#1f2937' }
+          },
+          fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui'] }
+        }
+      }
+    };
+  </script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+
+  <!-- Font Awesome -->
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+        crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+  <!-- Inter font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet" />
+
+  <style>
+    /* ── Base ── */
+    body { background: #0f1117; font-family: 'Inter', sans-serif; }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #0f1117; }
+    ::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+
+    /* ── Sidebar links ── */
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 500;
+      color: #9ca3af; cursor: pointer; transition: all 0.15s;
+      user-select: none;
+    }
+    .nav-item:hover { background: #1f2937; color: #f3f4f6; }
+    .nav-item.active { background: rgba(16,185,129,0.12); color: #10b981; }
+    .nav-item .icon { width: 16px; text-align: center; }
+
+    /* ── Cards ── */
+    .card {
+      background: #161b27; border: 1px solid #1f2937;
+      border-radius: 14px; padding: 20px;
+    }
+    .kpi-card {
+      background: #161b27; border: 1px solid #1f2937;
+      border-radius: 14px; padding: 18px 20px;
+      transition: border-color 0.15s;
+    }
+    .kpi-card:hover { border-color: #374151; }
+
+    /* ── Tables ── */
+    .tbl-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid #1f2937; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th {
+      padding: 10px 14px; text-align: left;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+      text-transform: uppercase; color: #6b7280;
+      background: #161b27; border-bottom: 1px solid #1f2937;
+    }
+    tbody tr { border-bottom: 1px solid rgba(31,41,55,0.6); transition: background 0.1s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: rgba(255,255,255,0.03); }
+    tbody td { padding: 10px 14px; color: #d1d5db; }
+
+    /* ── Page visibility ── */
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* ── Spinner ── */
+    .spin {
+      border: 2px solid #1f2937; border-top-color: #10b981;
+      border-radius: 50%; animation: rotate 0.7s linear infinite;
+    }
+    @keyframes rotate { to { transform: rotate(360deg); } }
+
+    /* ── Color helpers ── */
+    .pos { color: #10b981; }
+    .neg { color: #ef4444; }
+    .neu { color: #6b7280; }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+      transform: translateY(80px); opacity: 0;
+      transition: transform 0.25s ease, opacity 0.25s ease;
+    }
+    #toast.show { transform: translateY(0); opacity: 1; }
+
+    /* ── Sidebar collapsed on small screens ── */
+    @media (max-width: 767px) {
+      #sidebar { transform: translateX(-100%); }
+      #sidebar.open { transform: translateX(0); }
+      #main { margin-left: 0 !important; }
+    }
+
+    /* ── Mobile-only elements (hamburger, sidebar-X) ── */
+    .mobile-only { display: none !important; }
+    @media (max-width: 767px) {
+      .mobile-only { display: flex !important; }
+    }
+
+    /* ── Mobile sidebar overlay ── */
+    #sidebarOverlay {
+      display: none; position: fixed; inset: 0;
+      z-index: 49; background: rgba(0,0,0,0.55);
+      backdrop-filter: blur(2px);
+    }
+    #sidebarOverlay.show { display: block; }
+
+    /* ── Mobile header action bar ── */
+    @media (max-width: 640px) {
+      .header-btn-label { display: none; }
+      #headerActions { gap: 6px; }
+      #headerActions button { padding: 7px 9px; }
+    }
+    @media (max-width: 480px) {
+      .header-btn-secondary { display: none; }
+    }
+
+    /* ── Highlight boxes ── */
+    .metric-box {
+      background: rgba(255,255,255,0.03); border-radius: 10px; padding: 14px 16px;
+    }
+
+    /* ── Report viewer ── */
+    #reportContent {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 12px; line-height: 1.7;
+      color: #9ca3af; white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* ── Active run badge ── */
+    .run-badge {
+      background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3);
+      color: #10b981; border-radius: 6px; font-size: 11px; font-weight: 600;
+      padding: 2px 8px;
+    }
+
+    /* ── Error banner ── */
+    #errorBanner {
+      display: none;
+      background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
+      color: #fca5a5; border-radius: 10px;
+      padding: 10px 16px; font-size: 12px;
+      margin: 0 24px 16px 24px;
+      align-items: flex-start; gap: 10px;
+    }
+    #errorBanner.show { display: flex; }
+
+    /* ── Settings key card ── */
+    .key-card {
+      background: #161b27; border: 1px solid #1f2937;
+      border-radius: 12px; padding: 18px 20px;
+      transition: border-color 0.15s;
+    }
+    .key-card.is-set  { border-color: rgba(16,185,129,0.35); }
+    .key-input {
+      background: #0f1117; border: 1px solid #1f2937;
+      border-radius: 8px; padding: 8px 12px;
+      color: #f3f4f6; font-size: 13px; font-family: 'Courier New', monospace;
+      width: 100%; outline: none; transition: border-color 0.15s;
+    }
+    .key-input:focus { border-color: #10b981; }
+    .key-input::placeholder { color: #4b5563; font-family: 'Inter', sans-serif; }
+    /* ── Backtest-Modal ── */
+    #backtestModal {
+      display: none; position: fixed; inset: 0; z-index: 70;
+      background: rgba(0,0,0,0.65); backdrop-filter: blur(4px);
+      align-items: center; justify-content: center;
+    }
+    #backtestModal.open { display: flex; }
+
+    /* ── Log-Panel (Slide-in von rechts) ── */
+    #logPanel {
+      position: fixed; top: 0; right: 0; height: 100vh; width: 380px;
+      background: #0d1117; border-left: 1px solid #1f2937;
+      z-index: 60; display: flex; flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.3s cubic-bezier(.4,0,.2,1);
+      box-shadow: -8px 0 32px rgba(0,0,0,0.5);
+    }
+    #logPanel.open { transform: translateX(0); }
+    #logOutput {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 11px; line-height: 1.6;
+      color: #9ca3af; white-space: pre-wrap; word-break: break-all;
+      flex: 1; overflow-y: auto; padding: 12px 14px;
+      background: #0d1117;
+    }
+    #logOutput .log-ok     { color: #10b981; }
+    #logOutput .log-warn   { color: #f59e0b; }
+    #logOutput .log-err    { color: #ef4444; }
+    #logOutput .log-cached { color: #3b82f6; }
+    #logOutput .log-abort  { color: #8b5cf6; }
+  </style>
+<body class="text-gray-100 min-h-screen">
+
+<!-- ════════════════════════ MOBILE OVERLAY ═════════════════════════════════ -->
+<div id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+<!-- ════════════════════════ SIDEBAR ════════════════════════════════════════ -->
+<aside id="sidebar"
+       class="fixed left-0 top-0 h-full w-56 bg-[#0d1117] border-r border-[#1f2937] z-50
+              flex flex-col transition-transform duration-300">
+
+  <!-- Logo + mobile close button -->
+  <div class="px-5 py-5 border-b border-[#1f2937] flex items-center gap-3">
+    <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600
+                flex items-center justify-center flex-shrink-0">
+      <i class="fas fa-chart-line text-white text-sm"></i>
+    </div>
+    <div class="flex-1 min-w-0">
+      <div class="text-white font-bold text-sm leading-none">LLM-IBB</div>
+      <div class="text-gray-600 text-[10px] mt-0.5">Investor Benchmark</div>
+    </div>
+    <!-- Close button – only visible on mobile -->
+    <button class="mobile-only text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0
+                   w-7 h-7 items-center justify-center rounded-lg hover:bg-[#1f2937]"
+            onclick="closeSidebar()" aria-label="Menü schließen">
+      <i class="fas fa-xmark text-base"></i>
+    </button>
+  </div>
+
+  <!-- Run selector -->
+  <div class="px-4 py-4 border-b border-[#1f2937]">
+    <div class="text-[10px] uppercase tracking-widest text-gray-600 mb-2 px-1 font-semibold">
+      Active Run
+    </div>
+    <select id="runSelect"
+            class="w-full bg-[#161b27] border border-[#1f2937] rounded-lg px-3 py-2
+                   text-sm text-white focus:outline-none focus:border-emerald-500
+                   appearance-none cursor-pointer">
+      <option value="">Loading…</option>
+    </select>
+  </div>
+
+  <!-- Navigation -->
+  <nav class="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+    <div class="nav-item active" data-page="overview">
+      <i class="fas fa-gauge-high icon"></i> Overview
+    </div>
+    <div class="nav-item" data-page="portfolio">
+      <i class="fas fa-briefcase icon"></i> Portfolio
+    </div>
+    <div class="nav-item" data-page="trades">
+      <i class="fas fa-right-left icon"></i> Trades
+    </div>
+    <div class="nav-item" data-page="sentiment">
+      <i class="fas fa-brain icon"></i> Sentiment
+    </div>
+    <div class="nav-item" data-page="performance">
+      <i class="fas fa-chart-bar icon"></i> Performance
+    </div>
+    <div class="nav-item" data-page="behavior">
+      <i class="fas fa-user-gear icon"></i> Behavior
+    </div>
+    <div class="nav-item" data-page="reports">
+      <i class="fas fa-file-lines icon"></i> Reports
+    </div>
+    <div class="nav-item" data-page="logs">
+      <i class="fas fa-terminal icon"></i> Logs
+    </div>
+    <div class="mt-3 pt-3 border-t border-[#1f2937]">
+      <div class="nav-item" data-page="compare">
+        <i class="fas fa-scale-balanced icon"></i> Compare
+      </div>
+    </div>
+    <div class="mt-3 pt-3 border-t border-[#1f2937]">
+      <div class="nav-item" data-page="settings">
+        <i class="fas fa-key icon"></i> API Keys
+      </div>
+    </div>
+  </nav>
+
+  <!-- Footer status -->
+  <div class="px-4 py-3 border-t border-[#1f2937]">
+    <div class="flex items-center gap-2 text-[11px] text-gray-600">
+      <span id="statusDot" class="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0"></span>
+      <span>Updated: <span id="lastUpdate">–</span></span>
+    </div>
+  </div>
+</aside>
+
+<!-- ════════════════════════ MAIN ════════════════════════════════════════════ -->
+<main id="main" class="ml-56 min-h-screen flex flex-col">
+
+  <!-- Top bar -->
+  <header class="sticky top-0 z-40 bg-[#0f1117]/95 backdrop-blur
+                 border-b border-[#1f2937] px-6 py-3
+                 flex items-center justify-between gap-4">
+    <!-- Mobile menu toggle -->
+    <button class="mobile-only text-gray-400 hover:text-white flex-shrink-0"
+            onclick="openSidebar()" aria-label="Menü öffnen">
+      <i class="fas fa-bars text-lg"></i>
+    </button>
+
+    <!-- Breadcrumb -->
+    <div class="flex items-center gap-2 min-w-0 flex-1">
+      <span class="text-gray-500 text-sm hidden sm:inline">LLM-IBB</span>
+      <i class="fas fa-chevron-right text-gray-700 text-xs hidden sm:inline"></i>
+      <span id="breadcrumb" class="text-white text-sm font-semibold truncate">Overview</span>
+      <span id="runBadge" class="run-badge hidden"></span>
+    </div>
+
+    <div id="headerActions" class="flex items-center gap-2 flex-shrink-0">
+      <!-- Workflow status -->
+      <span id="workflowStatus" class="hidden items-center gap-1.5 text-xs text-yellow-400
+                                        bg-yellow-400/10 px-3 py-1.5 rounded-lg">
+        <span class="spin w-3 h-3 inline-block"></span>
+        <span class="header-btn-label">Workflow running…</span>
+      </span>
+
+      <!-- Backtest status -->
+      <span id="backtestStatus" class="hidden items-center gap-1.5 text-xs text-purple-400
+                                        bg-purple-400/10 px-3 py-1.5 rounded-lg">
+        <span class="spin w-3 h-3 inline-block border-purple-400 border-t-purple-200"></span>
+        <span class="header-btn-label">Backtest running…</span>
+      </span>
+
+      <!-- Refresh -->
+      <button id="btnRefresh" onclick="refreshCurrent()"
+              class="header-btn-secondary flex items-center gap-1.5 px-3 py-1.5 bg-[#161b27] hover:bg-[#1f2937]
+                     border border-[#1f2937] rounded-lg text-xs text-gray-400
+                     hover:text-white transition-all">
+        <i class="fas fa-rotate-right text-[11px]"></i>
+        <span class="header-btn-label">Refresh</span>
+      </button>
+
+      <!-- Log Panel Toggle -->
+      <button id="btnLogPanel" onclick="toggleLogPanel()"
+              class="flex items-center gap-1.5 px-3 py-1.5 bg-[#161b27] hover:bg-[#1f2937]
+                     border border-[#1f2937] rounded-lg text-xs text-gray-400
+                     hover:text-white transition-all">
+        <i class="fas fa-terminal text-[11px]"></i>
+        <span class="header-btn-label">Log</span>
+      </button>
+
+      <!-- Run Workflow -->
+      <button id="btnWorkflow" onclick="triggerWorkflow()"
+              class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500
+                     rounded-lg text-xs text-white font-medium transition-all">
+        <i class="fas fa-play text-[11px]"></i>
+        <span class="header-btn-label">Run Workflow</span>
+      </button>
+
+      <!-- Run Backtest -->
+      <button id="btnBacktest" onclick="triggerBacktest()"
+              class="flex items-center gap-1.5 px-3 py-1.5 bg-purple-700 hover:bg-purple-600
+                     rounded-lg text-xs text-white font-medium transition-all">
+        <i class="fas fa-flask text-[11px]"></i>
+        <span class="header-btn-label">Run Backtest</span>
+      </button>
+
+      <!-- Reset Run -->
+      <button id="btnReset" onclick="triggerReset()"
+              class="flex items-center gap-1.5 px-3 py-1.5 bg-red-700 hover:bg-red-600
+                     rounded-lg text-xs text-white font-medium transition-all">
+        <i class="fas fa-trash text-[11px]"></i>
+        <span class="header-btn-label">Reset</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Page content -->
+  <div class="flex-1 p-6">
+
+    <!-- Error banner -->
+    <div id="errorBanner" role="alert">
+      <i class="fas fa-triangle-exclamation text-red-400 mt-0.5 flex-shrink-0"></i>
+      <div class="flex-1">
+        <div class="font-semibold text-red-300 mb-0.5" id="errorBannerTitle">Fehler</div>
+        <div id="errorBannerMsg" class="text-red-200/80"></div>
+      </div>
+      <button onclick="dismissError()" class="text-red-400 hover:text-red-200 ml-2 flex-shrink-0">
+        <i class="fas fa-xmark"></i>
+      </button>
+    </div>
+
+    <!-- ══════════════ OVERVIEW ═════════════════════════════════════════════ -->
+    <section id="page-overview" class="page active">
+
+      <!-- KPI row -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 mb-5">
+        <div class="kpi-card">
+          <div class="text-[11px] text-gray-500 font-medium mb-1.5">Total Equity</div>
+          <div id="kpi-equity" class="text-xl font-bold text-white">–</div>
+          <div class="text-[11px] text-gray-600 mt-1">Portfolio value</div>
+        </div>
+        <div class="kpi-card">
+          <div class="text-[11px] text-gray-500 font-medium mb-1.5">Cash</div>
+          <div id="kpi-cash" class="text-xl font-bold text-white">–</div>
+          <div class="text-[11px] text-gray-600 mt-1">Available cash</div>
+        </div>
+        <div class="kpi-card">
+          <div class="text-[11px] text-gray-500 font-medium mb-1.5">Total Return</div>
+          <div id="kpi-total-return" class="text-xl font-bold text-white">–</div>
+          <div class="text-[11px] text-gray-600 mt-1">Since inception</div>
+        </div>
+        <div class="kpi-card">
+          <div class="text-[11px] text-gray-500 font-medium mb-1.5">Daily Return</div>
+          <div id="kpi-daily-return" class="text-xl font-bold text-white">–</div>
+          <div class="text-[11px] text-gray-600 mt-1">Last trading day</div>
+        </div>
+        <div class="kpi-card">
+          <div class="text-[11px] text-gray-500 font-medium mb-1.5">Open Positions</div>
+          <div id="kpi-positions" class="text-xl font-bold text-white">–</div>
+          <div class="text-[11px] text-gray-600 mt-1">Current holdings</div>
+        </div>
+        <div class="kpi-card">
+          <div class="text-[11px] text-gray-500 font-medium mb-1.5">Total Trades</div>
+          <div id="kpi-trades" class="text-xl font-bold text-white">–</div>
+          <div class="text-[11px] text-gray-600 mt-1">All time</div>
+        </div>
+      </div>
+
+      <!-- Equity chart -->
+      <div class="card mb-4">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-sm font-semibold text-gray-200">Portfolio Equity Curve</h2>
+          <div id="equityTrend" class="text-xs text-gray-600"></div>
+        </div>
+        <div style="height: 260px;"><canvas id="equityChart"></canvas></div>
+      </div>
+
+      <!-- Daily return bar + last log -->
+      <div class="grid grid-cols-1 xl:grid-cols-5 gap-4">
+        <div class="card xl:col-span-3">
+          <h2 class="text-sm font-semibold text-gray-200 mb-4">Daily Return (%)</h2>
+          <div style="height: 200px;"><canvas id="dailyRetChart"></canvas></div>
+        </div>
+        <div class="card xl:col-span-2">
+          <h2 class="text-sm font-semibold text-gray-200 mb-4">Last Execution Log</h2>
+          <div id="lastLogBlock" class="space-y-2 text-xs"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════ PORTFOLIO ════════════════════════════════════════════ -->
+    <section id="page-portfolio" class="page">
+      <div class="card">
+        <h2 class="text-sm font-semibold text-gray-200 mb-4">Current Positions</h2>
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Ticker / Company</th><th>Shares</th><th>Buy Price</th>
+                <th>Market Price</th><th>Market Value</th><th>Cost Basis</th>
+                <th>Stop Loss</th><th>Unrealized PnL</th>
+              </tr>
+            </thead>
+            <tbody id="posBody">
+              <tr><td colspan="8" class="text-center py-10 text-gray-600">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════ TRADES ═══════════════════════════════════════════════ -->
+    <section id="page-trades" class="page">
+      <div class="card">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h2 class="text-sm font-semibold text-gray-200">Trade Log</h2>
+          <div class="flex gap-2 flex-wrap">
+            <input id="tradeSearch" type="text" placeholder="Search…"
+                   class="bg-[#0f1117] border border-[#1f2937] rounded-lg px-3 py-1.5 text-xs
+                          text-gray-300 focus:outline-none focus:border-emerald-500 w-40" />
+            <select id="tradeFilter"
+                    class="bg-[#0f1117] border border-[#1f2937] rounded-lg px-3 py-1.5 text-xs
+                           text-gray-300 focus:outline-none focus:border-emerald-500">
+              <option value="">All actions</option>
+              <option value="BUY">BUY</option>
+              <option value="SELL">SELL</option>
+              <option value="UPDATE">UPDATE</option>
+            </select>
+            <select id="statusFilter"
+                    class="bg-[#0f1117] border border-[#1f2937] rounded-lg px-3 py-1.5 text-xs
+                           text-gray-300 focus:outline-none focus:border-emerald-500">
+              <option value="">All statuses</option>
+              <option value="FILLED">FILLED</option>
+              <option value="FAILED">FAILED</option>
+              <option value="SKIPPED">SKIPPED</option>
+              <option value="REJECTED">REJECTED</option>
+            </select>
+          </div>
+        </div>
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th><th>Ticker / Company</th><th>Action</th><th>Type</th>
+                <th>Shares</th><th>Limit</th><th>Exec. Price</th>
+                <th>PnL</th><th>Status</th><th>Conf.</th>
+              </tr>
+            </thead>
+            <tbody id="tradesBody">
+              <tr><td colspan="10" class="text-center py-10 text-gray-600">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="tradeCount" class="mt-3 text-xs text-gray-600 text-right"></div>
+      </div>
+    </section>
+
+    <!-- ══════════════ SENTIMENT ════════════════════════════════════════════ -->
+    <section id="page-sentiment" class="page">
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-4">
+        <div class="card">
+          <h2 class="text-sm font-semibold text-gray-200 mb-4">Polarity over Time</h2>
+          <div style="height: 200px;"><canvas id="polarityChart"></canvas></div>
+        </div>
+        <div class="card">
+          <h2 class="text-sm font-semibold text-gray-200 mb-4">Subjectivity over Time</h2>
+          <div style="height: 200px;"><canvas id="subjChart"></canvas></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2 class="text-sm font-semibold text-gray-200 mb-4">Sentiment History</h2>
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th><th>Type</th><th>Polarity</th>
+                <th>Subjectivity</th><th>Positive</th><th>Negative</th><th>Tokens</th>
+              </tr>
+            </thead>
+            <tbody id="sentBody">
+              <tr><td colspan="7" class="text-center py-10 text-gray-600">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════ PERFORMANCE ══════════════════════════════════════════ -->
+    <section id="page-performance" class="page">
+      <div id="perfContent">
+        <div class="text-center py-20 text-gray-600">
+          <i class="fas fa-chart-bar text-5xl mb-4 block opacity-30"></i>
+          Loading performance metrics…
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════ BEHAVIOR ═════════════════════════════════════════════ -->
+    <section id="page-behavior" class="page">
+      <div id="behavContent">
+        <div class="text-center py-20 text-gray-600">
+          <i class="fas fa-user-gear text-5xl mb-4 block opacity-30"></i>
+          Loading behavioral metrics…
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════ REPORTS ══════════════════════════════════════════════ -->
+    <section id="page-reports" class="page">
+      <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <div class="card xl:col-span-1">
+          <h2 class="text-sm font-semibold text-gray-200 mb-3">Research Reports</h2>
+          <div id="reportsList" class="space-y-1 max-h-[70vh] overflow-y-auto pr-1">
+            <p class="text-xs text-gray-600 text-center py-6">Loading…</p>
+          </div>
+        </div>
+        <div class="card xl:col-span-2 flex flex-col">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-semibold text-gray-200">Report Content</h2>
+            <span id="reportMeta" class="text-xs text-gray-600"></span>
+          </div>
+          <div class="flex-1 bg-[#0f1117] rounded-xl p-4 max-h-[70vh] overflow-y-auto">
+            <pre id="reportContent">Select a report from the list on the left…</pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════ LOGS ═════════════════════════════════════════════════ -->
+    <section id="page-logs" class="page">
+      <div id="logsContent">
+        <div class="text-center py-20 text-gray-600">
+          <i class="fas fa-terminal text-5xl mb-4 block opacity-30"></i>
+          Loading logs…
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════ COMPARE ══════════════════════════════════════════════ -->
+    <section id="page-compare" class="page">
+      <div class="card mb-4">
+        <h2 class="text-sm font-semibold text-gray-200 mb-4">Equity Comparison – All Models</h2>
+        <div style="height: 300px;"><canvas id="compareChart"></canvas></div>
+      </div>
+      <div class="card">
+        <h2 class="text-sm font-semibold text-gray-200 mb-4">Model Overview</h2>
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Model / Run</th><th>Equity</th><th>Cash</th>
+                <th>Total Return</th><th>Daily Return</th>
+                <th>Positions</th><th>Trades</th>
+              </tr>
+            </thead>
+            <tbody id="compareBody">
+              <tr><td colspan="7" class="text-center py-10 text-gray-600">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════ SETTINGS ════════════════════════════════════════════ -->
+    <section id="page-settings" class="page">
+      <div class="max-w-2xl mx-auto">
+
+        <!-- Header -->
+        <div class="mb-6">
+          <h1 class="text-lg font-bold text-white flex items-center gap-2">
+            <i class="fas fa-key text-emerald-400"></i> API Key Management
+          </h1>
+          <p class="text-xs text-gray-500 mt-1">
+            Keys are encrypted with Fernet (AES-128-CBC) and stored locally in
+            <code class="bg-[#161b27] px-1.5 py-0.5 rounded text-emerald-400">secrets.json</code>.
+            They are loaded into the process environment on every app start.
+            The plaintext value is never sent back to the browser.
+          </p>
+        </div>
+
+        <!-- Info banner -->
+        <div class="flex items-start gap-3 bg-yellow-500/5 border border-yellow-500/20
+                    rounded-xl px-4 py-3 mb-6 text-xs text-yellow-300/80">
+          <i class="fas fa-triangle-exclamation text-yellow-400 mt-0.5 flex-shrink-0"></i>
+          <span>
+            <strong class="text-yellow-300">Hinweis:</strong>
+            The encryption key (<code class="font-mono">secrets.key</code>) is stored on the
+            same machine. Anyone with server access can decrypt the file.
+            Make sure your Armbian server is properly secured (firewall, SSH key auth).
+          </span>
+        </div>
+
+        <!-- Key cards (filled dynamically) -->
+        <div id="keysContainer" class="space-y-4">
+          <div class="text-center py-10 text-gray-600 text-sm">
+            <span class="spin w-5 h-5 inline-block"></span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </div><!-- /p-6 -->
+</main>
+
+<!-- ════════════════════════ BACKTEST MODAL ═════════════════════════════════ -->
+<div id="backtestModal">
+  <div class="bg-[#161b27] border border-[#1f2937] rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-sm font-bold text-white flex items-center gap-2">
+        <i class="fas fa-flask text-purple-400 text-xs"></i> Backtest konfigurieren
+      </h2>
+      <button onclick="closeBacktestModal()"
+              class="text-gray-600 hover:text-gray-300 transition-colors">
+        <i class="fas fa-xmark"></i>
+      </button>
+    </div>
+
+    <!-- Run-Auswahl -->
+    <div class="mb-4">
+      <label class="block text-[11px] text-gray-500 font-medium mb-1.5 uppercase tracking-wide">
+        Run / Modell
+      </label>
+      <select id="btRun"
+              class="w-full bg-[#0f1117] border border-[#1f2937] rounded-lg px-3 py-2
+                     text-sm text-white focus:outline-none focus:border-purple-500">
+        <option value="" disabled selected>Wird geladen …</option>
+      </select>
+    </div>
+
+    <!-- Datumsfelder -->
+    <div class="space-y-3 mb-4">
+      <div>
+        <label class="block text-[11px] text-gray-500 font-medium mb-1.5 uppercase tracking-wide">
+          Startdatum
+        </label>
+        <input id="btStartDate" type="date"
+               class="w-full bg-[#0f1117] border border-[#1f2937] rounded-lg px-3 py-2
+                      text-sm text-white focus:outline-none focus:border-purple-500
+                      [color-scheme:dark]" />
+        <p class="text-[10px] text-gray-600 mt-1">Leer = letzte 14 Tage</p>
+      </div>
+      <div>
+        <label class="block text-[11px] text-gray-500 font-medium mb-1.5 uppercase tracking-wide">
+          Enddatum
+        </label>
+        <input id="btEndDate" type="date"
+               class="w-full bg-[#0f1117] border border-[#1f2937] rounded-lg px-3 py-2
+                      text-sm text-white focus:outline-none focus:border-purple-500
+                      [color-scheme:dark]" />
+        <p class="text-[10px] text-gray-600 mt-1">Leer = heute</p>
+      </div>
+    </div>
+
+    <!-- Reset-Checkbox -->
+    <label class="flex items-start gap-3 mb-5 cursor-pointer group">
+      <input id="btReset" type="checkbox" checked
+             class="mt-0.5 w-4 h-4 rounded border-gray-600 bg-[#0f1117]
+                    accent-purple-500 cursor-pointer flex-shrink-0" />
+      <div>
+        <span class="text-sm text-gray-200 group-hover:text-white transition-colors font-medium">
+          Run-Zustand zurücksetzen
+        </span>
+        <p class="text-[11px] text-gray-600 mt-0.5">
+          Löscht Portfolio, Trades und Logs im gewählten Run-Verzeichnis
+          vor dem Start. Erforderlich, wenn bereits neuere Daten vorhanden sind.
+        </p>
+      </div>
+    </label>
+
+    <!-- Warnhinweis Reset -->
+    <div id="btResetWarning"
+         class="mb-4 flex items-start gap-2 bg-yellow-500/8 border border-yellow-500/20
+                rounded-xl px-3 py-2.5 text-[11px] text-yellow-300/80">
+      <i class="fas fa-triangle-exclamation text-yellow-400 mt-0.5 flex-shrink-0 text-xs"></i>
+      <span>Vorherige Backtest-Daten werden unwiderruflich gelöscht.</span>
+    </div>
+
+    <!-- Buttons -->
+    <div class="flex gap-2">
+      <button onclick="closeBacktestModal()"
+              class="flex-1 px-4 py-2 bg-[#1f2937] hover:bg-[#374151] rounded-lg
+                     text-sm text-gray-300 transition-all">
+        Abbrechen
+      </button>
+      <button onclick="confirmBacktest()"
+              class="flex-1 px-4 py-2 bg-purple-700 hover:bg-purple-600 rounded-lg
+                     text-sm text-white font-medium transition-all">
+        <i class="fas fa-play text-[11px] mr-1"></i> Starten
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════ RESET MODAL ════════════════════════════════════ -->
+<div id="resetModal"
+     class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+  <div class="bg-[#161b27] border border-red-700/40 rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="text-sm font-bold text-white flex items-center gap-2">
+        <i class="fas fa-trash text-red-400 text-xs"></i> Run zurücksetzen
+      </h2>
+      <button onclick="closeResetModal()"
+              class="text-gray-600 hover:text-gray-300 transition-colors">
+        <i class="fas fa-xmark"></i>
+      </button>
+    </div>
+
+    <!-- Run-Anzeige -->
+    <div class="mb-4 bg-[#0f1117] border border-[#1f2937] rounded-lg px-3 py-2.5">
+      <p class="text-[11px] text-gray-500 uppercase tracking-wide mb-0.5">Ziel-Run</p>
+      <p id="resetRunLabel" class="text-sm font-semibold text-white">–</p>
+    </div>
+
+    <!-- Warnhinweis -->
+    <div class="mb-5 flex items-start gap-2 bg-red-500/8 border border-red-500/25
+                rounded-xl px-3 py-2.5 text-[11px] text-red-300/90">
+      <i class="fas fa-triangle-exclamation text-red-400 mt-0.5 flex-shrink-0 text-xs"></i>
+      <span>
+        <strong>Unwiderruflich!</strong> Alle Portfolio-Daten, Trades, Reports und Logs
+        dieses Runs werden gelöscht. Die leere Dateistruktur wird neu angelegt.
+        <br/><span class="text-gray-500 mt-1 inline-block">Die config.json (starting_cash, commission, calendar) bleibt erhalten.</span>
+      </span>
+    </div>
+
+    <!-- Buttons -->
+    <div class="flex gap-2">
+      <button onclick="closeResetModal()"
+              class="flex-1 px-4 py-2 bg-[#1f2937] hover:bg-[#374151] rounded-lg
+                     text-sm text-gray-300 transition-all">
+        Abbrechen
+      </button>
+      <button id="btnConfirmReset" onclick="confirmReset()"
+              class="flex-1 px-4 py-2 bg-red-700 hover:bg-red-600 rounded-lg
+                     text-sm text-white font-medium transition-all">
+        <i class="fas fa-trash text-[11px] mr-1"></i> Zurücksetzen
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════ LOG PANEL ══════════════════════════════════════ -->
+<div id="logPanel">
+  <!-- Panel-Header -->
+  <div class="flex items-center justify-between px-4 py-3 border-b border-[#1f2937] flex-shrink-0">
+    <div class="flex items-center gap-2">
+      <i class="fas fa-terminal text-purple-400 text-xs"></i>
+      <span class="text-sm font-semibold text-gray-200">Backtest Log</span>
+      <span id="logLiveIndicator"
+            class="hidden items-center gap-1 text-[10px] text-purple-400
+                   bg-purple-400/10 px-2 py-0.5 rounded-full">
+        <span class="spin w-2 h-2 inline-block border-purple-400 border-t-purple-200"></span> Live
+      </span>
+    </div>
+    <div class="flex items-center gap-2">
+      <!-- Stop-Button -->
+      <button id="btnCancelBacktest" onclick="cancelBacktest()"
+              class="hidden items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium
+                     bg-red-600/20 hover:bg-red-600/40 text-red-400 border border-red-600/30
+                     transition-all">
+        <i class="fas fa-stop text-[9px]"></i> Stop
+      </button>
+      <!-- Clear -->
+      <button onclick="document.getElementById('logOutput').innerHTML=''"
+              class="text-gray-600 hover:text-gray-400 text-xs px-2 py-1 rounded transition-colors"
+              title="Log leeren">
+        <i class="fas fa-eraser"></i>
+      </button>
+      <!-- Schließen -->
+      <button onclick="toggleLogPanel(false)"
+              class="text-gray-600 hover:text-gray-300 transition-colors">
+        <i class="fas fa-xmark"></i>
+      </button>
+    </div>
+  </div>
+  <!-- Log-Ausgabe -->
+  <pre id="logOutput"><span class="text-gray-700">– Noch kein Backtest gestartet –</span></pre>
+  <!-- Panel-Footer -->
+  <div class="px-4 py-2 border-t border-[#1f2937] flex-shrink-0
+              flex items-center justify-between text-[10px] text-gray-700">
+    <span id="logLineCount">0 Zeilen</span>
+    <button onclick="scrollLogToBottom()"
+            class="hover:text-gray-500 transition-colors">
+      <i class="fas fa-angles-down"></i> Ende
+    </button>
+  </div>
+</div>
+
+<!-- ════════════════════════ TOAST ══════════════════════════════════════════ -->
+<div id="toast"
+     class="bg-[#161b27] border border-[#1f2937] rounded-xl px-5 py-3 shadow-2xl
+            flex items-center gap-3 text-sm text-white">
+  <span id="toastIcon"><i class="fas fa-check-circle text-emerald-400"></i></span>
+  <span id="toastMsg">Done</span>
+</div>
+
+<!-- ════════════════════════ SCRIPT ═════════════════════════════════════════ -->
+<script>
+'use strict';
+
+// ─── State ───────────────────────────────────────────────────────────────────
+let currentRun    = '';
+let allTrades     = [];
+let charts        = {};
+let _tickerNames  = {};   // cache: ticker → company name
+let _lastWorkflowError = null;   // verhindert wiederholte Fehlerbanner
+let _lastBacktestError = null;
+
+/** Resolve ticker names via API (cached). */
+async function fetchTickerNames(tickers) {
+  const unknown = tickers.filter(t => !_tickerNames[t]);
+  if (unknown.length) {
+    try {
+      const res = await fetch('/api/ticker-names', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tickers: unknown }),
+      });
+      const map = await res.json();
+      Object.assign(_tickerNames, map);
+    } catch (_) {}
+  }
+}
+
+/** Return a two-line ticker cell:  BOLD ticker + gray company name. */
+function tickerLabel(ticker) {
+  const name = _tickerNames[ticker];
+  if (name && name !== ticker) {
+    return `<span class="font-semibold text-white block leading-tight">${ticker}</span>
+            <span class="text-[11px] text-gray-500 block leading-tight">${name}</span>`;
+  }
+  return `<span class="font-semibold text-white">${ticker}</span>`;
+}
+
+// ─── Palette & chart defaults ─────────────────────────────────────────────────
+const PALETTE = ['#10b981','#3b82f6','#f59e0b','#ec4899','#8b5cf6','#06b6d4','#84cc16','#f97316'];
+
+const BASE_OPTS = {
+  responsive: true, maintainAspectRatio: false,
+  plugins: {
+    legend: { labels: { color: '#6b7280', font: { size: 11, family: 'Inter' }, boxWidth: 12 } },
+    tooltip: {
+      backgroundColor: '#1f2937', titleColor: '#f9fafb', bodyColor: '#d1d5db',
+      borderColor: '#374151', borderWidth: 1, padding: 10, cornerRadius: 8
+    }
+  },
+  scales: {
+    x: { ticks: { color: '#4b5563', font: { size: 10 }, maxRotation: 0 }, grid: { color: '#1f2937' } },
+    y: { ticks: { color: '#4b5563', font: { size: 10 } }, grid: { color: '#1f2937' } }
+  }
+};
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function fmt(n, dec = 2) {
+  const v = parseFloat(n);
+  return isNaN(v) ? '–' : v.toFixed(dec);
+}
+function fmtUsd(n) {
+  const v = parseFloat(n);
+  if (isNaN(v)) return '–';
+  return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function fmtPct(n, dec = 2) {
+  const v = parseFloat(n);
+  if (isNaN(v)) return '–';
+  return (v >= 0 ? '+' : '') + v.toFixed(dec) + '%';
+}
+function numColor(n) {
+  const v = parseFloat(n);
+  return isNaN(v) ? 'neu' : v >= 0 ? 'pos' : 'neg';
+}
+function badge(text, type = 'gray') {
+  const map = {
+    green:  'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30',
+    red:    'bg-red-500/15 text-red-400 border border-red-500/30',
+    yellow: 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/30',
+    blue:   'bg-blue-500/15 text-blue-400 border border-blue-500/30',
+    purple: 'bg-purple-500/15 text-purple-400 border border-purple-500/30',
+    gray:   'bg-gray-700/50 text-gray-400 border border-gray-600/30',
+  };
+  return `<span class="inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${map[type] || map.gray}">${text}</span>`;
+}
+function emptyRow(cols, msg = 'No data') {
+  return `<tr><td colspan="${cols}" class="text-center py-10 text-gray-600 text-xs">
+    <i class="fas fa-inbox text-2xl block mb-2 opacity-30"></i>${msg}</td></tr>`;
+}
+function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
+function toast(msg, ok = true) {
+  document.getElementById('toastMsg').textContent = msg;
+  document.getElementById('toastIcon').innerHTML = ok
+    ? '<i class="fas fa-check-circle text-emerald-400"></i>'
+    : '<i class="fas fa-exclamation-circle text-red-400"></i>';
+  const el = document.getElementById('toast');
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3200);
+}
+
+// ─── Error banner ────────────────────────────────────────────────────────────
+function showError(title, msg) {
+  document.getElementById('errorBannerTitle').textContent = title;
+  document.getElementById('errorBannerMsg').textContent   = msg;
+  document.getElementById('errorBanner').classList.add('show');
+}
+function dismissError() {
+  document.getElementById('errorBanner').classList.remove('show');
+}
+
+// ─── Mobile sidebar ──────────────────────────────────────────────────────────
+function openSidebar() {
+  document.getElementById('sidebar').classList.add('open');
+  document.getElementById('sidebarOverlay').classList.add('show');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebarOverlay').classList.remove('show');
+  document.body.style.overflow = '';
+}
+
+// Beim Resize auf Desktop: Mobile-State komplett aufräumen
+window.addEventListener('resize', () => {
+  if (window.innerWidth >= 768) {
+    closeSidebar();
+  }
+});
+
+// ESC-Taste schließt die Sidebar
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeSidebar();
+});
+
+// ─── Navigation ──────────────────────────────────────────────────────────────
+function showPage(page) {
+  document.querySelectorAll('.page').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const section = document.getElementById('page-' + page);
+  if (section) section.classList.add('active');
+  const navEl = document.querySelector(`.nav-item[data-page="${page}"]`);
+  if (navEl) {
+    navEl.classList.add('active');
+    document.getElementById('breadcrumb').textContent = navEl.textContent.trim();
+  }
+  // Settings page works without an active run
+  if (page === 'settings') { loadSettings(); return; }
+  if (currentRun) loadPage(page);
+}
+
+function loadPage(page) {
+  switch (page) {
+    case 'overview':     loadOverview();     break;
+    case 'portfolio':    loadPositions();    break;
+    case 'trades':       loadTrades();       break;
+    case 'sentiment':    loadSentiment();    break;
+    case 'performance':  loadPerformance();  break;
+    case 'behavior':     loadBehavior();     break;
+    case 'reports':      loadReports();      break;
+    case 'logs':         loadLogs();         break;
+    case 'compare':      loadCompare();      break;
+    case 'settings':     loadSettings();     break;
+  }
+}
+
+// ─── Init ────────────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    const runs = await (await fetch('/api/runs')).json();
+    const sel = document.getElementById('runSelect');
+    sel.innerHTML = runs.length
+      ? runs.map(r => `<option value="${r}">${r}</option>`).join('')
+      : '<option value="">No runs found</option>';
+
+    if (runs.length) {
+      currentRun = runs[0];
+      sel.value = currentRun;
+      updateRunBadge();
+      loadOverview();
+    }
+    sel.addEventListener('change', () => {
+      currentRun = sel.value;
+      updateRunBadge();
+      const activePage = document.querySelector('.page.active');
+      if (activePage) loadPage(activePage.id.replace('page-', ''));
+      closeSidebar();
+    });
+  } catch (e) {
+    console.error('Init failed:', e);
+  }
+
+  // bind nav clicks – always close sidebar after navigation (no-op on desktop where CSS has no transform)
+  document.querySelectorAll('.nav-item[data-page]').forEach(el => {
+    el.addEventListener('click', () => {
+      showPage(el.dataset.page);
+      closeSidebar();
+    });
+  });
+
+  // Klick außerhalb des Backtest-Modals schließt es
+  document.getElementById('backtestModal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeBacktestModal();
+  });
+
+  // poll workflow status every 5 s
+  setInterval(pollWorkflowStatus, 5000);
+  // auto-refresh every 3 minutes
+  setInterval(() => { if (currentRun) refreshCurrent(); }, 3 * 60 * 1000);
+
+  document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+}
+
+function updateRunBadge() {
+  const b = document.getElementById('runBadge');
+  if (currentRun) { b.textContent = currentRun; b.classList.remove('hidden'); }
+  else b.classList.add('hidden');
+}
+
+function refreshCurrent() {
+  const activePage = document.querySelector('.page.active');
+  if (activePage) loadPage(activePage.id.replace('page-', ''));
+  document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+}
+
+// ─── Log-Panel ────────────────────────────────────────────────────────────────
+let _logPollTimer = null;
+let _logPanelOpen = false;
+
+function toggleLogPanel(forceOpen) {
+  const panel = document.getElementById('logPanel');
+  if (forceOpen === undefined) _logPanelOpen = !_logPanelOpen;
+  else _logPanelOpen = forceOpen;
+  panel.classList.toggle('open', _logPanelOpen);
+}
+
+function scrollLogToBottom() {
+  const el = document.getElementById('logOutput');
+  el.scrollTop = el.scrollHeight;
+}
+
+function _colorLine(line) {
+  if (line.includes('[CACHED]'))    return `<span class="log-cached">${line}</span>`;
+  if (line.includes('[ABGEBROCHEN]') || line.includes('[ABBRUCH]'))
+                                    return `<span class="log-abort">${line}</span>`;
+  if (line.includes('[FEHLER]') || line.includes('[WARN]') || line.includes('[ERROR]'))
+                                    return `<span class="log-warn">${line}</span>`;
+  if (line.includes('✓') || line.includes('abgeschlossen'))
+                                    return `<span class="log-ok">${line}</span>`;
+  return line;
+}
+
+async function _fetchLog() {
+  try {
+    const data = await fetch('/api/backtest-log').then(r => r.json());
+    const lines = data.lines || [];
+    const el = document.getElementById('logOutput');
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    el.innerHTML = lines.length
+      ? lines.map(_colorLine).join('\n')
+      : '<span class="text-gray-700">– Noch kein Log –</span>';
+    document.getElementById('logLineCount').textContent = `${lines.length} Zeilen`;
+    if (atBottom) scrollLogToBottom();
+  } catch (_) {}
+}
+
+async function cancelBacktest() {
+  const btn = document.getElementById('btnCancelBacktest');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin w-3 h-3 inline-block mr-1"></span> Wird gestoppt…';
+  try {
+    const res  = await fetch('/api/cancel-backtest', { method: 'POST' });
+    const json = await res.json();
+    if (json.ok) toast('Abbruch angefordert – läuft noch bis zum nächsten Checkpoint.', true);
+    else showError('Abbruch fehlgeschlagen', json.message);
+  } catch (e) {
+    showError('Netzwerkfehler beim Abbruch', e.message);
+  }
+}
+
+async function pollWorkflowStatus() {
+  try {
+    const [wf, bt] = await Promise.all([
+      fetch('/api/workflow-status').then(r => r.json()),
+      fetch('/api/backtest-status').then(r => r.json()),
+    ]);
+
+    // Workflow badge
+    const wfEl = document.getElementById('workflowStatus');
+    wfEl.classList.toggle('hidden', !wf.running);
+    wfEl.classList.toggle('flex',    wf.running);
+    if (wf.error && wf.error !== _lastWorkflowError) {
+      _lastWorkflowError = wf.error;
+      showError('Workflow-Fehler', wf.error);
+      document.getElementById('btnWorkflow').disabled = false;
+    }
+
+    // Backtest badge
+    const btEl = document.getElementById('backtestStatus');
+    btEl.classList.toggle('hidden', !bt.running);
+    btEl.classList.toggle('flex',    bt.running);
+    const btBtn = document.getElementById('btnBacktest');
+    const cancelBtn = document.getElementById('btnCancelBacktest');
+    const liveIndicator = document.getElementById('logLiveIndicator');
+
+    if (bt.running) {
+      btBtn.disabled = true;
+      btBtn.innerHTML = '<span class="spin w-3 h-3 inline-block mr-1.5"></span> Running…';
+      // Stop-Button + Live-Indikator einblenden
+      cancelBtn.classList.remove('hidden');
+      cancelBtn.classList.add('flex');
+      cancelBtn.disabled = false;
+      cancelBtn.innerHTML = '<i class="fas fa-stop text-[9px]"></i> Stop';
+      liveIndicator.classList.remove('hidden');
+      liveIndicator.classList.add('inline-flex');
+      // Log-Polling starten (falls noch nicht aktiv)
+      if (!_logPollTimer) {
+        _logPollTimer = setInterval(_fetchLog, 2000);
+        _fetchLog();
+      }
+    } else {
+      btBtn.disabled = false;
+      btBtn.innerHTML = '<i class="fas fa-flask text-[11px]"></i> Run Backtest';
+      // Stop-Button + Live-Indikator ausblenden
+      cancelBtn.classList.add('hidden');
+      cancelBtn.classList.remove('flex');
+      liveIndicator.classList.add('hidden');
+      liveIndicator.classList.remove('inline-flex');
+      // Log-Polling stoppen
+      if (_logPollTimer) {
+        clearInterval(_logPollTimer);
+        _logPollTimer = null;
+        _fetchLog(); // letzten Stand holen
+      }
+    }
+    if (bt.error && bt.error !== _lastBacktestError) {
+      _lastBacktestError = bt.error;
+      showError('Backtest-Fehler', bt.error);
+    }
+  } catch (_) {}
+}
+
+// ─── Overview ────────────────────────────────────────────────────────────────
+async function loadOverview() {
+  try {
+    const [ov, hist] = await Promise.all([
+      fetch(`/api/${currentRun}/overview`).then(r => r.json()),
+      fetch(`/api/${currentRun}/history`).then(r => r.json()),
+    ]);
+
+    document.getElementById('kpi-equity').textContent = fmtUsd(ov.equity);
+    document.getElementById('kpi-cash').textContent   = fmtUsd(ov.cash);
+    document.getElementById('kpi-positions').textContent = ov.positions_count ?? '–';
+    document.getElementById('kpi-trades').textContent    = ov.trades_count ?? '–';
+
+    const trEl = document.getElementById('kpi-total-return');
+    trEl.textContent  = fmtPct(ov.total_return_pct);
+    trEl.className    = `text-xl font-bold ${numColor(ov.total_return_pct)}`;
+
+    const drEl = document.getElementById('kpi-daily-return');
+    const drVal = ov.daily_return_pct;
+    drEl.textContent  = (drVal !== null && drVal !== undefined) ? fmtPct(drVal) : '–';
+    drEl.className    = `text-xl font-bold ${numColor(drVal)}`;
+
+    renderEquityChart(hist);
+    renderDailyRetChart(hist);
+    renderLastLog(ov.last_log);
+
+  } catch (e) { showError('Übersicht konnte nicht geladen werden', e.message); }
+}
+
+function renderEquityChart(hist) {
+  destroyChart('equityChart');
+  if (!hist.length) return;
+  const ctx = document.getElementById('equityChart').getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, 0, 260);
+  grad.addColorStop(0,   'rgba(16,185,129,0.25)');
+  grad.addColorStop(1,   'rgba(16,185,129,0)');
+
+  charts.equityChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: hist.map(r => r.date),
+      datasets: [{
+        label: 'Equity',
+        data: hist.map(r => parseFloat(r.equity)),
+        borderColor: '#10b981', backgroundColor: grad,
+        borderWidth: 2, tension: 0.35, fill: true,
+        pointRadius: hist.length < 40 ? 3 : 0, pointHoverRadius: 5,
+        pointBackgroundColor: '#10b981',
+      }]
+    },
+    options: {
+      ...BASE_OPTS,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        ...BASE_OPTS.plugins,
+        tooltip: {
+          ...BASE_OPTS.plugins.tooltip,
+          callbacks: { label: ctx => ' ' + fmtUsd(ctx.parsed.y) }
+        }
+      },
+      scales: {
+        ...BASE_OPTS.scales,
+        y: {
+          ...BASE_OPTS.scales.y,
+          ticks: { ...BASE_OPTS.scales.y.ticks, callback: v => '$' + v.toLocaleString() }
+        }
+      }
+    }
+  });
+}
+
+function renderDailyRetChart(hist) {
+  destroyChart('dailyRetChart');
+  const data = hist.filter(r => r.daily_return_pct !== '' && r.daily_return_pct !== 'None' && r.daily_return_pct != null);
+  if (!data.length) return;
+  const vals = data.map(r => parseFloat(r.daily_return_pct));
+  charts.dailyRetChart = new Chart(document.getElementById('dailyRetChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: data.map(r => r.date),
+      datasets: [{ label: 'Daily Return %', data: vals, borderRadius: 3,
+        backgroundColor: vals.map(v => v >= 0 ? 'rgba(16,185,129,0.65)' : 'rgba(239,68,68,0.65)') }]
+    },
+    options: BASE_OPTS
+  });
+}
+
+function renderLastLog(log) {
+  const el = document.getElementById('lastLogBlock');
+  if (!log || !Object.keys(log).length) {
+    el.innerHTML = '<p class="text-gray-600 text-xs">No execution log yet.</p>';
+    return;
+  }
+  const rows = [
+    ['Date', log.date], ['Weekday', log.weekday],
+    ['Started', log.started_at], ['Finished', log.finished_at],
+    ['NYSE Open', log.nyse_open_on_date ? '✓ Yes' : '✗ No'],
+    ['Eligible', log.eligible_for_execution ? '✓ Yes' : '✗ No'],
+    ['Status', log.processing_status],
+    ['Orders', log.orders_processed], ['Failed', log.orders_failed],
+    ['Portfolio', fmtUsd(log.portfolio_value)],
+  ];
+  el.innerHTML = rows.map(([k, v]) =>
+    `<div class="flex justify-between items-center py-1 border-b border-[#1f2937]/50 last:border-0">
+       <span class="text-gray-600">${k}</span>
+       <span class="text-gray-300 font-mono text-right">${v ?? '–'}</span>
+     </div>`
+  ).join('');
+}
+
+// ─── Portfolio ────────────────────────────────────────────────────────────────
+async function loadPositions() {
+  try {
+    const rows = await (await fetch(`/api/${currentRun}/positions`)).json();
+    const body = document.getElementById('posBody');
+    if (!rows.length) { body.innerHTML = emptyRow(8, 'No open positions'); return; }
+    await fetchTickerNames(rows.map(r => r.ticker));
+    body.innerHTML = rows.map(r => {
+      const pnl = parseFloat(r.unrealized_pnl);
+      return `<tr>
+        <td>${tickerLabel(r.ticker)}</td>
+        <td>${r.shares}</td>
+        <td>${fmtUsd(r.buy_price)}</td>
+        <td>${fmtUsd(r.market_price)}</td>
+        <td class="font-medium">${fmtUsd(r.market_value)}</td>
+        <td>${fmtUsd(r.cost_basis)}</td>
+        <td class="text-yellow-400">${fmtUsd(r.stop_loss)}</td>
+        <td class="${numColor(pnl)} font-medium">${fmtUsd(pnl)}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) { showError('Positionen konnten nicht geladen werden', e.message); }
+}
+
+// ─── Trades ───────────────────────────────────────────────────────────────────
+async function loadTrades() {
+  try {
+    allTrades = await (await fetch(`/api/${currentRun}/trades`)).json();
+    await fetchTickerNames(allTrades.map(r => r.ticker));
+    renderTrades(allTrades);
+    document.getElementById('tradeSearch').oninput   = filterTrades;
+    document.getElementById('tradeFilter').onchange  = filterTrades;
+    document.getElementById('statusFilter').onchange = filterTrades;
+  } catch (e) { showError('Trades konnten nicht geladen werden', e.message); }
+}
+
+function filterTrades() {
+  const q  = document.getElementById('tradeSearch').value.toLowerCase();
+  const af = document.getElementById('tradeFilter').value;
+  const sf = document.getElementById('statusFilter').value;
+  let rows = allTrades;
+  if (q)  rows = rows.filter(r => JSON.stringify(r).toLowerCase().includes(q));
+  if (af) rows = rows.filter(r => r.action === af);
+  if (sf) rows = rows.filter(r => r.status === sf);
+  renderTrades(rows);
+}
+
+function renderTrades(rows) {
+  const body = document.getElementById('tradesBody');
+  document.getElementById('tradeCount').textContent = rows.length ? `Showing ${rows.length} trade(s)` : '';
+  if (!rows.length) { body.innerHTML = emptyRow(10, 'No matching trades'); return; }
+  const actionBadge = { BUY: 'blue', SELL: 'red', UPDATE: 'yellow' };
+  const statusBadge = { FILLED: 'green', FAILED: 'red', SKIPPED: 'yellow', REJECTED: 'red' };
+  body.innerHTML = [...rows].reverse().map(r => {
+    const pnl = (r.PnL !== '' && r.PnL !== 'None' && r.PnL != null) ? parseFloat(r.PnL) : null;
+    return `<tr>
+      <td class="text-gray-500">${r.date}</td>
+      <td>${tickerLabel(r.ticker)}</td>
+      <td>${badge(r.action, actionBadge[r.action] || 'gray')}</td>
+      <td class="text-gray-500 text-xs">${r.order_type}</td>
+      <td>${r.shares}</td>
+      <td>${r.limit_price ? fmtUsd(r.limit_price) : '–'}</td>
+      <td>${fmtUsd(r.executed_price)}</td>
+      <td class="${pnl != null ? numColor(pnl) : 'neu'} font-medium">${pnl != null ? fmtUsd(pnl) : '–'}</td>
+      <td>${badge(r.status, statusBadge[r.status] || 'gray')}</td>
+      <td class="text-gray-500">${r.confidence ? (parseFloat(r.confidence) * 100).toFixed(0) + '%' : '–'}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ─── Sentiment ────────────────────────────────────────────────────────────────
+async function loadSentiment() {
+  try {
+    const data = await (await fetch(`/api/${currentRun}/sentiment`)).json();
+    renderSentCharts(data);
+    renderSentTable(data);
+  } catch (e) { showError('Sentiment konnte nicht geladen werden', e.message); }
+}
+
+function renderSentCharts(data) {
+  if (!data.length) return;
+  const labels = data.map(d => d.date);
+  const polarity = data.map(d => parseFloat(d.polarity));
+  const subj     = data.map(d => parseFloat(d.subjectivity));
+
+  destroyChart('polarityChart');
+  charts.polarityChart = new Chart(document.getElementById('polarityChart').getContext('2d'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Polarity', data: polarity,
+        borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)',
+        tension: 0.3, fill: true, borderWidth: 2,
+        pointBackgroundColor: polarity.map(v => v >= 0 ? '#10b981' : '#ef4444'),
+        pointRadius: 4, pointHoverRadius: 6,
+      }]
+    },
+    options: BASE_OPTS
+  });
+
+  destroyChart('subjChart');
+  charts.subjChart = new Chart(document.getElementById('subjChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Subjectivity', data: subj, borderRadius: 4,
+        backgroundColor: 'rgba(139,92,246,0.55)',
+      }]
+    },
+    options: BASE_OPTS
+  });
+}
+
+function renderSentTable(data) {
+  const body = document.getElementById('sentBody');
+  if (!data.length) { body.innerHTML = emptyRow(7, 'No sentiment data yet'); return; }
+  body.innerHTML = [...data].reverse().map(r => `<tr>
+    <td class="text-gray-500">${r.date}</td>
+    <td>${badge(r.report_type, 'blue')}</td>
+    <td class="${numColor(r.polarity)} font-mono">${fmt(r.polarity, 4)}</td>
+    <td class="font-mono">${fmt(r.subjectivity, 4)}</td>
+    <td class="text-emerald-400">${r.positive_count}</td>
+    <td class="text-red-400">${r.negative_count}</td>
+    <td class="text-gray-500">${r.token_count}</td>
+  </tr>`).join('');
+}
+
+// ─── Performance ──────────────────────────────────────────────────────────────
+async function loadPerformance() {
+  const el = document.getElementById('perfContent');
+  try {
+    const data = await (await fetch(`/api/${currentRun}/performance`)).json();
+    if (!data.length) {
+      el.innerHTML = `<div class="text-center py-20 text-gray-600">
+        <i class="fas fa-chart-bar text-5xl mb-4 block opacity-20"></i>
+        No performance data yet.<br>
+        <span class="text-xs mt-2 block">Run the workflow to generate metrics.</span>
+      </div>`;
+      return;
+    }
+    const p = data[data.length - 1];
+
+    const sections = [
+      {
+        title: 'Risk & Return',
+        icon: 'fas fa-chart-line',
+        metrics: [
+          { label: 'Sharpe (Annualized)', value: fmt(p.sharpe_ratio_annualized), sub: `Daily: ${fmt(p.sharpe_ratio_daily)}`, color: parseFloat(p.sharpe_ratio_annualized) > 1 ? 'pos' : parseFloat(p.sharpe_ratio_annualized) > 0 ? 'text-yellow-400' : 'neg' },
+          { label: 'Sortino (Annualized)', value: fmt(p.sortino_ratio_annualized), sub: `Daily: ${fmt(p.sortino_ratio_daily)}`, color: parseFloat(p.sortino_ratio_annualized) > 1 ? 'pos' : 'text-yellow-400' },
+          { label: 'Max Drawdown', value: fmtPct(p.max_drawdown_pct), sub: `Peak on ${p.max_drawdown_date}`, color: 'neg' },
+          { label: 'Daily Volatility', value: fmt(p.volatility_daily, 4), sub: 'Std dev of daily returns', color: 'text-gray-300' },
+        ]
+      },
+      {
+        title: 'CAPM',
+        icon: 'fas fa-arrows-to-circle',
+        metrics: [
+          { label: 'Beta', value: fmt(p.capm_beta), sub: 'Market sensitivity', color: 'text-blue-400' },
+          { label: 'Alpha (Annualized)', value: fmtPct(p.capm_alpha_annualized != null ? p.capm_alpha_annualized * 100 : null), sub: 'Excess return vs benchmark', color: numColor(p.capm_alpha_annualized) },
+          { label: 'R²', value: fmt(p.capm_r_squared), sub: 'Fit to market factor', color: 'text-gray-300' },
+        ]
+      },
+      {
+        title: 'Trade Level',
+        icon: 'fas fa-right-left',
+        metrics: [
+          { label: 'Win Rate', value: p.win_rate != null ? (parseFloat(p.win_rate) * 100).toFixed(1) + '%' : '–', sub: `${p.trade_count} completed trades`, color: parseFloat(p.win_rate) > 0.5 ? 'pos' : 'neg' },
+          { label: 'Profit Factor', value: fmt(p.profit_factor), sub: 'Gross gain / gross loss', color: parseFloat(p.profit_factor) > 1 ? 'pos' : 'neg' },
+          { label: 'Expectancy', value: fmtUsd(p.expectancy), sub: 'Expected PnL per trade', color: numColor(p.expectancy) },
+          { label: 'Avg Gain', value: fmtUsd(p.avg_gain), sub: `Median: ${fmtUsd(p.median_gain)}`, color: 'pos' },
+          { label: 'Avg Loss', value: fmtUsd(p.avg_loss), sub: `Median: ${fmtUsd(p.median_loss)}`, color: 'neg' },
+          { label: 'Total Buys', value: p.total_buy_count ?? '–', sub: 'All buy orders', color: 'text-blue-400' },
+          { label: 'Total Sells', value: p.total_sell_count ?? '–', sub: 'All sell orders', color: 'text-red-400' },
+        ]
+      },
+    ];
+
+    el.innerHTML = sections.map(s => `
+      <div class="card mb-4">
+        <h3 class="text-sm font-semibold text-gray-300 mb-4 flex items-center gap-2">
+          <i class="${s.icon} text-emerald-400 text-xs"></i> ${s.title}
+        </h3>
+        <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+          ${s.metrics.map(m => `
+            <div class="metric-box">
+              <div class="text-[11px] text-gray-600 mb-1.5 font-medium">${m.label}</div>
+              <div class="text-lg font-bold ${m.color}">${m.value}</div>
+              ${m.sub ? `<div class="text-[10px] text-gray-600 mt-1">${m.sub}</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `).join('') + `
+      <div class="text-xs text-gray-700 mt-1 px-1">
+        Observation: ${p.start_date} → ${p.end_date} (${p.observation_count} days) · Generated: ${p.generated_at}
+      </div>`;
+
+  } catch (e) { el.innerHTML = `<div class="text-red-400 text-sm p-4">Error loading data: ${e}</div>`; }
+}
+
+// ─── Behavior ─────────────────────────────────────────────────────────────────
+async function loadBehavior() {
+  const el = document.getElementById('behavContent');
+  try {
+    const data = await (await fetch(`/api/${currentRun}/behavior`)).json();
+    if (!data.length) {
+      el.innerHTML = `<div class="text-center py-20 text-gray-600">
+        <i class="fas fa-user-gear text-5xl mb-4 block opacity-20"></i>
+        No behavioral data yet.<br>
+        <span class="text-xs mt-2 block">Run the workflow to generate metrics.</span>
+      </div>`;
+      return;
+    }
+    const b = data[data.length - 1];
+
+    const sections = [
+      {
+        title: 'Decision Patterns',
+        icon: 'fas fa-brain',
+        metrics: [
+          { label: 'Loss Aversion λ', value: fmt(b.loss_aversion_score), sub: 'avg_loss / avg_gain  (>2 = high aversion)', color: parseFloat(b.loss_aversion_score) > 2 ? 'neg' : parseFloat(b.loss_aversion_score) > 1 ? 'text-yellow-400' : 'pos' },
+          { label: 'HHI Concentration', value: fmt(b.hhi_index, 4), sub: '0 = diversified · 1 = concentrated', color: parseFloat(b.hhi_index) > 0.5 ? 'neg' : 'pos' },
+          { label: 'Turnover Ratio', value: fmt(b.turnover_ratio), sub: 'Total traded / avg equity', color: 'text-gray-300' },
+        ]
+      },
+      {
+        title: 'Cash Behavior',
+        icon: 'fas fa-money-bill-wave',
+        metrics: [
+          { label: 'Avg Cash Allocation', value: fmt(b.avg_cash_pct) + '%', sub: 'Mean daily cash %', color: 'text-gray-300' },
+          { label: 'Median Cash %', value: fmt(b.med_cash_pct) + '%', sub: 'Median daily cash %', color: 'text-gray-300' },
+        ]
+      },
+      {
+        title: 'Position Breadth',
+        icon: 'fas fa-grip',
+        metrics: [
+          { label: 'Avg Positions / Day', value: fmt(b.avg_positions_per_day, 1), sub: 'Mean concurrent holdings', color: 'text-gray-300' },
+          { label: 'Median Positions / Day', value: fmt(b.median_positions_per_day, 1), sub: 'Median holdings', color: 'text-gray-300' },
+          { label: 'Max Positions (Peak)', value: b.max_positions_in_a_day ?? '–', sub: 'Max concurrent holdings', color: 'text-yellow-400' },
+        ]
+      },
+      {
+        title: 'Order Activity',
+        icon: 'fas fa-arrow-right-arrow-left',
+        metrics: [
+          { label: 'Total Buys', value: b.total_buy_count, sub: '', color: 'text-blue-400' },
+          { label: 'Total Sells', value: b.total_sell_count, sub: '', color: 'text-red-400' },
+          { label: 'Stop-Loss Updates', value: b.total_stoploss_updates, sub: '', color: 'text-yellow-400' },
+          { label: 'Stop-Loss Sells', value: b.total_stoploss_sells, sub: '', color: 'text-orange-400' },
+          { label: 'Failed Buys', value: b.total_failed_buys, sub: '', color: 'neg' },
+          { label: 'Failed Sells', value: b.total_failed_sells, sub: '', color: 'neg' },
+          { label: 'Rejected Buys', value: b.total_rejected_buys, sub: '', color: 'neg' },
+          { label: 'Rejected Sells', value: b.total_rejected_sells, sub: '', color: 'neg' },
+        ]
+      },
+    ];
+
+    el.innerHTML = sections.map(s => `
+      <div class="card mb-4">
+        <h3 class="text-sm font-semibold text-gray-300 mb-4 flex items-center gap-2">
+          <i class="${s.icon} text-emerald-400 text-xs"></i> ${s.title}
+        </h3>
+        <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+          ${s.metrics.map(m => `
+            <div class="metric-box">
+              <div class="text-[11px] text-gray-600 mb-1.5 font-medium">${m.label}</div>
+              <div class="text-lg font-bold ${m.color}">${m.value ?? '–'}</div>
+              ${m.sub ? `<div class="text-[10px] text-gray-600 mt-1">${m.sub}</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `).join('');
+
+  } catch (e) { el.innerHTML = `<div class="text-red-400 text-sm p-4">Error: ${e}</div>`; }
+}
+
+// ─── Reports ──────────────────────────────────────────────────────────────────
+async function loadReports() {
+  try {
+    const reports = await (await fetch(`/api/${currentRun}/reports`)).json();
+    const list = document.getElementById('reportsList');
+    if (!reports.length) {
+      list.innerHTML = '<p class="text-xs text-gray-600 text-center py-8">No reports available</p>';
+      return;
+    }
+    list.innerHTML = reports.map(r => {
+      const label = r.type === 'daily_reports' ? 'Daily' : 'Deep';
+      const color = r.type === 'daily_reports' ? 'blue' : 'green';
+      return `<button onclick="loadReport('${r.name}','${r.type}')"
+                class="w-full text-left px-3 py-2.5 rounded-lg hover:bg-[#1f2937] transition-colors group">
+        <div class="text-xs text-gray-300 group-hover:text-white truncate font-medium">
+          ${r.name.replace('.txt', '')}
+        </div>
+        <div class="mt-0.5">${badge(label, color)}</div>
+      </button>`;
+    }).join('');
+  } catch (e) { showError('Reports konnten nicht geladen werden', e.message); }
+}
+
+async function loadReport(name, type) {
+  document.getElementById('reportContent').textContent = 'Loading…';
+  document.getElementById('reportMeta').textContent = name;
+  try {
+    const text = await (await fetch(`/api/${currentRun}/report?name=${encodeURIComponent(name)}&type=${type}`)).text();
+    document.getElementById('reportContent').textContent = text;
+  } catch (e) {
+    document.getElementById('reportContent').textContent = 'Error loading report: ' + e;
+  }
+}
+
+// ─── Logs ─────────────────────────────────────────────────────────────────────
+async function loadLogs() {
+  const el = document.getElementById('logsContent');
+  try {
+    const logs = await (await fetch(`/api/${currentRun}/logs`)).json();
+    if (!logs.length) {
+      el.innerHTML = `<div class="text-center py-20 text-gray-600">
+        <i class="fas fa-terminal text-5xl mb-4 block opacity-20"></i>No execution logs found.
+      </div>`;
+      return;
+    }
+    el.innerHTML = logs.map(log => {
+      const status = log.processing_status;
+      const ok = status && status.toLowerCase() === 'success';
+      return `<div class="card mb-3">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div class="flex items-center gap-2">
+            <span class="text-white font-semibold text-sm">${log.date || '–'}</span>
+            <span class="text-gray-600 text-xs">${log.weekday || ''}</span>
+            ${status ? badge(status, ok ? 'green' : 'red') : ''}
+          </div>
+          ${log.eligible_for_execution != null
+            ? (log.eligible_for_execution ? badge('Eligible', 'green') : badge('Not Eligible', 'gray'))
+            : ''}
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div><div class="text-gray-600 mb-0.5">Orders</div><div class="text-white font-medium">${log.orders_processed ?? '–'}</div></div>
+          <div><div class="text-gray-600 mb-0.5">Failed</div><div class="text-red-400 font-medium">${log.orders_failed ?? '–'}</div></div>
+          <div><div class="text-gray-600 mb-0.5">Skipped</div><div class="text-yellow-400 font-medium">${log.orders_skipped ?? '–'}</div></div>
+          <div><div class="text-gray-600 mb-0.5">Portfolio</div><div class="text-emerald-400 font-medium">${fmtUsd(log.portfolio_value)}</div></div>
+          <div><div class="text-gray-600 mb-0.5">NYSE Open</div><div class="${log.nyse_open_on_date ? 'pos' : 'neu'}">${log.nyse_open_on_date ? 'Yes' : 'No'}</div></div>
+          <div><div class="text-gray-600 mb-0.5">Started</div><div class="text-gray-400 font-mono">${log.started_at ?? '–'}</div></div>
+          <div><div class="text-gray-600 mb-0.5">Finished</div><div class="text-gray-400 font-mono">${log.finished_at ?? '–'}</div></div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (e) { el.innerHTML = `<div class="text-red-400 text-sm p-4">Error: ${e}</div>`; }
+}
+
+// ─── Compare ──────────────────────────────────────────────────────────────────
+async function loadCompare() {
+  try {
+    const data = await (await fetch('/api/compare')).json();
+    const runs  = Object.keys(data);
+
+    // Build chart with individual date labels per dataset
+    destroyChart('compareChart');
+    const datasets = runs.map((run, i) => {
+      const hist = data[run].history || [];
+      return {
+        label: run,
+        data: hist.map(r => ({ x: r.date, y: parseFloat(r.equity) })),
+        borderColor: PALETTE[i % PALETTE.length],
+        backgroundColor: 'transparent',
+        tension: 0.3, borderWidth: 2,
+        pointRadius: 0, pointHoverRadius: 5,
+      };
+    });
+
+    charts.compareChart = new Chart(document.getElementById('compareChart').getContext('2d'), {
+      type: 'line',
+      data: { datasets },
+      options: {
+        ...BASE_OPTS,
+        interaction: { mode: 'index', intersect: false },
+        parsing: false,
+        scales: {
+          ...BASE_OPTS.scales,
+          x: { type: 'category', ...BASE_OPTS.scales.x },
+          y: {
+            ...BASE_OPTS.scales.y,
+            ticks: { ...BASE_OPTS.scales.y.ticks, callback: v => '$' + v.toLocaleString() }
+          }
+        }
+      }
+    });
+
+    // Table
+    const body = document.getElementById('compareBody');
+    body.innerHTML = runs.map(run => {
+      const ov = data[run].overview || {};
+      const dr = ov.daily_return_pct;
+      return `<tr>
+        <td class="font-semibold text-white">${run}</td>
+        <td class="font-medium">${fmtUsd(ov.equity)}</td>
+        <td>${fmtUsd(ov.cash)}</td>
+        <td class="${numColor(ov.total_return_pct)} font-medium">${fmtPct(ov.total_return_pct)}</td>
+        <td class="${dr != null ? numColor(dr) : 'neu'}">${dr != null ? fmtPct(dr) : '–'}</td>
+        <td>${ov.positions_count ?? '–'}</td>
+        <td>${ov.trades_count ?? '–'}</td>
+      </tr>`;
+    }).join('');
+
+  } catch (e) { showError('Vergleich konnte nicht geladen werden', e.message); }
+}
+
+// ─── Workflow trigger ─────────────────────────────────────────────────────────
+async function triggerWorkflow() {
+  const btn = document.getElementById('btnWorkflow');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin w-3 h-3 inline-block mr-1.5"></span> Starting…';
+  _lastWorkflowError = null;   // Reset: neuer Lauf darf neue Fehler zeigen
+  dismissError();
+  try {
+    const res  = await fetch('/api/run-workflow', { method: 'POST' });
+    const json = await res.json();
+    if (!json.ok) showError('Workflow konnte nicht gestartet werden', json.message);
+    else toast(json.message || 'Workflow started', true);
+  } catch (e) {
+    showError('Workflow-Netzwerkfehler', e.message);
+  } finally {
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-play text-[11px]"></i> Run Workflow';
+    }, 1500);
+  }
+}
+
+// ─── Backtest trigger ─────────────────────────────────────────────────────────
+function triggerBacktest() {
+  openBacktestModal();
+}
+
+function openBacktestModal() {
+  // Run-Selector befüllen
+  const sel = document.getElementById('btRun');
+  fetch('/api/runs').then(r => r.json()).then(runs => {
+    sel.innerHTML = runs.length
+      ? runs.map(r => `<option value="${r}">${r}</option>`).join('')
+      : '<option value="" disabled>Keine Runs gefunden</option>';
+    // Aktuell ausgewählten Run vorauswählen (falls vorhanden)
+    if (currentRun && runs.includes(currentRun)) {
+      sel.value = currentRun;
+    }
+  }).catch(() => {
+    sel.innerHTML = '<option value="" disabled>Fehler beim Laden</option>';
+  });
+
+  // Reset-Checkbox-Warnhinweis Toggle
+  const cb = document.getElementById('btReset');
+  const warn = document.getElementById('btResetWarning');
+  warn.style.display = cb.checked ? 'flex' : 'none';
+  cb.addEventListener('change', () => {
+    warn.style.display = cb.checked ? 'flex' : 'none';
+  }, { once: true });
+  document.getElementById('backtestModal').classList.add('open');
+}
+
+function closeBacktestModal() {
+  document.getElementById('backtestModal').classList.remove('open');
+}
+
+// ─── Reset Run ────────────────────────────────────────────────────────────────
+function triggerReset() {
+  if (!currentRun) { showError('Kein Run ausgewählt', 'Bitte zuerst einen Run in der Sidebar auswählen.'); return; }
+  document.getElementById('resetRunLabel').textContent = currentRun;
+  document.getElementById('resetModal').classList.remove('hidden');
+}
+
+function closeResetModal() {
+  document.getElementById('resetModal').classList.add('hidden');
+}
+
+async function confirmReset() {
+  const run = currentRun;
+  if (!run) return;
+
+  const btn = document.getElementById('btnConfirmReset');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin w-3 h-3 inline-block mr-1.5 border-red-300 border-t-white"></span> Läuft…';
+
+  try {
+    const res  = await fetch(`/api/${encodeURIComponent(run)}/reset`, { method: 'POST' });
+    const json = await res.json();
+    closeResetModal();
+    if (json.ok) {
+      toast(json.message || `Run '${run}' zurückgesetzt.`, true);
+      refreshCurrent();
+    } else {
+      showError('Reset fehlgeschlagen', json.message);
+    }
+  } catch (e) {
+    closeResetModal();
+    showError('Reset-Netzwerkfehler', e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-trash text-[11px] mr-1"></i> Zurücksetzen';
+  }
+}
+
+async function confirmBacktest() {
+  const start = document.getElementById('btStartDate').value || null;
+  const end   = document.getElementById('btEndDate').value   || null;
+  const reset = document.getElementById('btReset').checked;
+  const run   = document.getElementById('btRun').value;
+
+  if (!run) {
+    showError('Kein Run ausgewählt', 'Bitte einen Run aus der Liste wählen.');
+    return;
+  }
+
+  closeBacktestModal();
+
+  const btn = document.getElementById('btnBacktest');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin w-3 h-3 inline-block mr-1.5"></span> Starting…';
+  dismissError();
+
+  try {
+    const res  = await fetch('/api/run-backtest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ start, end, reset, run }),
+    });
+    const json = await res.json();
+    if (!json.ok) {
+      showError('Backtest konnte nicht gestartet werden', json.message);
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-flask text-[11px]"></i> Run Backtest';
+    } else {
+      toast(json.message || 'Backtest started', true);
+      document.getElementById('logOutput').innerHTML = '<span class="text-gray-600">Starte …</span>';
+      toggleLogPanel(true);
+    }
+  } catch (e) {
+    showError('Backtest-Netzwerkfehler', e.message);
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-flask text-[11px]"></i> Run Backtest';
+  }
+}
+
+// ─── Settings – API Keys ──────────────────────────────────────────────────────
+async function loadSettings() {
+  const container = document.getElementById('keysContainer');
+  container.innerHTML = `<div class="text-center py-10 text-gray-600">
+    <span class="spin w-5 h-5 inline-block"></span></div>`;
+  try {
+    const keys = await fetch('/api/settings/keys').then(r => r.json());
+    renderKeyCards(keys);
+  } catch (e) {
+    container.innerHTML = `<p class="text-red-400 text-sm text-center py-10">
+      Failed to load key list: ${e.message}</p>`;
+  }
+}
+
+function renderKeyCards(keys) {
+  const container = document.getElementById('keysContainer');
+  if (!keys.length) {
+    container.innerHTML = '<p class="text-gray-600 text-sm text-center py-10">No keys configured.</p>';
+    return;
+  }
+  container.innerHTML = keys.map(k => `
+    <div id="keycard-${k.name}" class="key-card ${k.set ? 'is-set' : ''}">
+      <!-- Header row -->
+      <div class="flex items-start justify-between gap-3 mb-3">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-sm font-semibold text-white">${k.label}</span>
+            ${k.set
+              ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold
+                          bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                   <i class="fas fa-check text-[9px]"></i> Stored
+                 </span>`
+              : `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold
+                          bg-red-500/10 text-red-400 border border-red-500/20">
+                   <i class="fas fa-xmark text-[9px]"></i> Not set
+                 </span>`}
+          </div>
+          <code class="text-[11px] text-gray-600 font-mono">${k.name}</code>
+          <p class="text-[11px] text-gray-500 mt-1">${k.hint}
+            <a href="${k.url}" target="_blank" rel="noopener"
+               class="text-emerald-500 hover:text-emerald-400 ml-1">
+              Get key <i class="fas fa-arrow-up-right-from-square text-[9px]"></i>
+            </a>
+          </p>
+        </div>
+        ${k.set && k.stored
+          ? `<button onclick="deleteApiKey('${k.name}')"
+                    class="flex-shrink-0 px-2.5 py-1.5 rounded-lg text-xs text-red-400
+                           border border-red-500/20 hover:bg-red-500/10 transition-colors">
+               <i class="fas fa-trash-can"></i>
+             </button>`
+          : ''}
+      </div>
+
+      <!-- Current value preview -->
+      ${k.set ? `
+        <div class="flex items-center gap-2 mb-3 bg-[#0f1117] rounded-lg px-3 py-2">
+          <i class="fas fa-lock text-gray-600 text-xs flex-shrink-0"></i>
+          <code id="masked-${k.name}"
+                class="text-xs text-gray-400 font-mono flex-1 truncate">${k.masked}</code>
+          <button onclick="toggleKeyVisibility('${k.name}', '${k.masked}')"
+                  id="visBtn-${k.name}"
+                  class="text-gray-600 hover:text-gray-300 text-xs transition-colors flex-shrink-0"
+                  title="Show / hide">
+            <i class="fas fa-eye"></i>
+          </button>
+        </div>` : ''}
+
+      <!-- Input + save -->
+      <div class="flex gap-2">
+        <input  id="input-${k.name}"
+                type="password"
+                class="key-input flex-1"
+                placeholder="${k.set ? 'Enter new value to overwrite…' : 'Paste your API key here…'}"
+                autocomplete="off"
+                spellcheck="false" />
+        <button onclick="saveApiKey('${k.name}')"
+                id="saveBtn-${k.name}"
+                class="flex-shrink-0 px-4 py-2 bg-emerald-600 hover:bg-emerald-500
+                       rounded-lg text-xs text-white font-medium transition-colors">
+          <i class="fas fa-floppy-disk mr-1"></i> Save
+        </button>
+        <button onclick="toggleInputVisibility('${k.name}')"
+                class="flex-shrink-0 px-3 py-2 bg-[#1f2937] hover:bg-[#374151]
+                       rounded-lg text-xs text-gray-400 transition-colors"
+                title="Show / hide input">
+          <i class="fas fa-eye"></i>
+        </button>
+      </div>
+    </div>`).join('');
+}
+
+async function saveApiKey(name) {
+  const input   = document.getElementById(`input-${name}`);
+  const saveBtn = document.getElementById(`saveBtn-${name}`);
+  const value   = input.value.trim();
+  if (!value) { toast('Please enter a value before saving.', false); return; }
+
+  saveBtn.disabled = true;
+  saveBtn.innerHTML = '<span class="spin w-3 h-3 inline-block"></span>';
+  try {
+    const res  = await fetch('/api/settings/keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, value }),
+    });
+    const json = await res.json();
+    if (json.ok) {
+      input.value = '';
+      toast(json.message, true);
+      loadSettings();   // refresh the card list
+    } else {
+      toast(json.message || 'Error saving key', false);
+    }
+  } catch (e) {
+    toast('Network error: ' + e.message, false);
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.innerHTML = '<i class="fas fa-floppy-disk mr-1"></i> Save';
+  }
+}
+
+async function deleteApiKey(name) {
+  if (!confirm(`Delete "${name}" from the encrypted store?\nIt will be removed from the running process immediately.`)) return;
+  try {
+    const res  = await fetch(`/api/settings/keys/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    const json = await res.json();
+    toast(json.ok ? json.message : (json.message || 'Error'), json.ok);
+    if (json.ok) loadSettings();
+  } catch (e) {
+    toast('Network error: ' + e.message, false);
+  }
+}
+
+function toggleInputVisibility(name) {
+  const inp = document.getElementById(`input-${name}`);
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+function toggleKeyVisibility(name, masked) {
+  const el  = document.getElementById(`masked-${name}`);
+  const btn = document.getElementById(`visBtn-${name}`);
+  if (el.dataset.showing === '1') {
+    el.textContent     = masked;
+    el.dataset.showing = '0';
+    btn.innerHTML      = '<i class="fas fa-eye"></i>';
+  } else {
+    el.textContent     = '(plaintext not available — key is stored encrypted)';
+    el.dataset.showing = '1';
+    btn.innerHTML      = '<i class="fas fa-eye-slash"></i>';
+  }
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
+

@@ -1,333 +1,337 @@
-# LLM Investor Behavior Benchmark (LIBB)
+# LLM Investor Behavior Benchmark (LIBB) — Fork
 
-## What Is LIBB?
-
-LIBB is an open-source, opinionated research library designed to automatically manage portfolio state and compute key metrics,
-while still giving users flexibility over the system.
-
-## Why LIBB Exists
-
-This project originally began as a generic benchmark for LLM-based trading in U.S. equities. While surveying existing LLM trading projects (including my own), I noticed a consistent lack of rigorous sentiment, behavioral, and performance metrics; most projects reported little more than an equity curve.
-
-This raised a fundamental question: ***"Why isn't LLM trading held to the same analytical standards as the rest of finance?"***
-
-So I developed a library designed to support rigorous evaluation of LLM-driven trading systems. The long-term goal is to provide a shared foundation for this work and, ultimately, to establish a community standard for this type of research.
-
-## Features
-
-- **Persistent Portfolio State**
-  
-  All portfolio data is explicitly stored on disk, enabling inspection,
-  reproducibility, and post-hoc analysis across runs.
-
-- **Built-In Behavioral, Performance, and Sentiment Analysis**
-  
-  Quantitative behavioral metrics (HHI concentration, loss aversion, turnover, cash allocation, order quality),
-  key performance metrics (Sharpe, Sortino, drawdown, CAPM), and sentiment analysis via the Loughran-McDonald financial lexicon.
-  All results are persisted as first-class research artifacts.
-
-- **Atomic Portfolio Processing with Rollback**
-  
-  All portfolio processing is transactional. If execution fails mid-run,
-  disk state is automatically restored to a snapshot taken at startup,
-  preventing partial writes and corrupt portfolio state.
-
-- **Reproducible Run Structure**
-  
-  Each model run follows a consistent on-disk directory layout, making
-  experiments easy to reproduce, compare, and archive.
-
-- **Flexible Execution Workflows**
-  
-  Execution logic remains fully user-controlled, allowing researchers
-  to integrate custom strategies, models, or data sources.
-
-## How It Works
-
-LIBB operates as a file-backed execution loop where portfolio state,
-analytics, and research artifacts are explicitly persisted to disk.
-
-For each run, the engine:
-
-1. Loads and processes existing portfolio state
-2. Receives inputs (e.g., via an LLM)
-3. Computes and stores analytical signals (such as sentiment) via explicit user calls
-4. Saves execution instructions (orders) by passing a JSON block
-5. Persists all outputs for inspection and reuse
-
-Execution scheduling (e.g., daily vs. weekly runs) and model orchestration
-are intentionally left to the user, preserving flexibility while
-maintaining a consistent on-disk state.
-
-## Documentation
-
-New to LIBB?
-Start here → **[Documentation Guide](docs/README.md)**
-
-This guide explains the system philosophy, execution workflow,
-and how to read the codebase effectively.
+> **This repository is a fork of**
+> [LuckyOne7777/LLM-Investor-Behavior-Benchmark](https://github.com/LuckyOne7777/LLM-Investor-Behavior-Benchmark).
+> The original project serves as the foundation; all changes and additions
+> compared to upstream are documented in the [Changes from the Original](#changes) section.
 
 ---
 
-## Example Workflow
+## What is LIBB?
+
+LIBB is an open-source research library that automatically manages portfolio state
+and calculates core metrics — while giving the user full control over the execution logic.
+
+## Why does LIBB exist?
+
+The project originally started as a generic benchmark for LLM-driven trading with
+US equities. When analyzing existing LLM-trading projects it became clear that
+rigorous sentiment, behavioral, and performance metrics are almost universally missing —
+most projects show nothing more than an equity curve.
+
+This raises a fundamental question: ***"Why isn't LLM trading held to the same
+analytical standards as the rest of the financial world?"***
+
+LIBB aims to provide a shared foundation for this work and to establish a community
+standard for this research area in the long run.
+
+---
+
+## Features (Original)
+
+- **Persistent portfolio state** – all data is explicitly written to disk
+  (reproducibility, post-hoc analysis)
+- **Behavioral, performance, and sentiment metrics** – HHI concentration,
+  loss aversion, turnover, Sharpe, Sortino, max drawdown, CAPM, Loughran-McDonald lexicon
+- **Atomic portfolio processing with rollback** – if a run fails, the disk state
+  is rolled back to the startup snapshot
+- **Reproducible run structure** – uniform directory layout per experiment
+- **Flexible execution workflows** – strategy, model, and data sources remain
+  entirely in the user's hands
+
+---
+
+<a name="changes"></a>
+## Changes from the Original
+
+### 1 · Groq Free-Tier LLM Support
+**File:** `user_side/prompt_orchestration/prompt_models.py`
+
+In addition to DeepSeek and GPT-4.1, a full **Groq adapter** with intelligent
+rate-limit handling was added:
+
+| Model | Daily Quota | Characteristics |
+|---|---|---|
+| `llama-3.3-70b-versatile` | 100,000 tokens/day | Best reasoning |
+| `meta-llama/llama-4-scout-17b-16e-instruct` | 500,000 tokens/day | Llama 4, 5× quota |
+| `llama-3.1-8b-instant` | 500,000 tokens/day | Fast & lightweight |
+
+**Fallback strategy:**
+- Rate-limit ≤ 90 s → automatic wait + retry on the same model
+- Rate-limit > 90 s (daily quota exhausted) → immediate switch to the next model
+- Decommissioned model → immediate skip
+- Transient errors → exponential backoff (2 s, 4 s), then next model
+- All models exhausted → `RuntimeError` with a clear message
+
+Groq is **free to use** (free API key at https://console.groq.com).
+
+---
+
+### 2 · Flask Web Dashboard
+**File:** `dashboard.py`
+
+![Screenshot of a comment on a GitHub issue showing an image, added in the Markdown, of an Octocat smiling and raising a tentacle.](dashboard.jpg)
+
+Full web dashboard with:
+
+- **Portfolio monitoring** – live equity, cash, positions, trade log
+- **Multi-run comparison** – equity curves of multiple runs side by side
+- **Metrics view** – behavior, performance, sentiment per run
+- **Report browser** – daily reports and deep-research texts directly in the browser
+- **Backtest control** – start, stop (cancel), live log stream
+- **Workflow trigger** – manual start of the trading workflow via button
+- **API key management** – encrypted key store, manageable directly in the UI
+  (no manual editing of `.env` files required)
+- **Ticker name resolution** – static lookup table + yfinance fallback
+
+Start:
+```bash
+python dashboard.py   # http://0.0.0.0:5000
+```
+
+---
+
+### 3 · Backtesting Engine
+**File:** `user_side/backtesting_workflow.py`
+
+New function `smallcap_backtest()` for historical simulations:
+
+```python
+from user_side.backtesting_workflow import smallcap_backtest
+
+smallcap_backtest(
+    run_dir="user_side/runs/run_v1/groq",
+    start="2025-01-01",
+    end="2025-03-01",
+    reset_on_start=True,   # wipe run before starting
+)
+```
+
+Features:
+- Automatically skips already-processed dates (skip-guard)
+- **Report caching** – if a report file already exists for a date, the LLM call
+  is skipped and the cache is parsed directly
+- **Cancel support** via `threading.Event` – can be aborted at any time (including from the dashboard)
+- Final metrics (performance + behavior) are generated automatically
+- Configurable sleep times between days / LLM calls (rate-limit protection)
+
+---
+
+### 4 · Encrypted API Key Store
+**File:** `libb/other/key_store.py`
+
+API keys are stored **Fernet-symmetrically encrypted** in `secrets.json`;
+the encryption key lives in `secrets.key`. Both files must never be committed.
+
+```python
+from libb.other.key_store import load_into_environ
+load_into_environ()   # call once at app startup
+```
+
+Supported keys (manageable via the dashboard):
+- `GROQ_API_KEY`
+- `OPENAI_API_KEY`
+- `DEEPSEEK_API_KEY`
+
+---
+
+### 5 · Combined App Server with Scheduler
+**File:** `app.py`
+
+Starts the Flask dashboard **and** a background scheduler in a single process:
+
+```bash
+python app.py   # dashboard + scheduler
+```
+
+The scheduler runs the trading workflow Mon–Fri at **21:45 UTC** (≈ 16:45 ET,
+after NYSE close). Ideal for running on an always-on server (e.g. Armbian/Raspberry Pi).
+
+---
+
+### 6 · Small-Cap Focus (Europe)
+**Files:** `user_side/prompts/`, `user_side/prompt_orchestration/get_prompt_data.py`
+
+Prompts and candidate selection are tailored to **European small-caps ≤ 10 EUR**
+(XETRA Frankfurt, Helsinki, London, Amsterdam, Paris, Madrid, Milan).
+
+Default configuration in the backtest:
+- Starting capital: **100 EUR**
+- Trading fee: **1 EUR / order** (flat)
+- Market calendar: **XETR** (Deutsche Börse)
+- Max positions: **5** simultaneously
+
+---
+
+### 7 · Market Calendar & Commission Parameters
+**File:** `libb/model.py`
+
+`LIBBmodel` now accepts two new parameters:
+
+```python
+libb = LIBBmodel(
+    "user_side/runs/run_v1/groq",
+    starting_cash=100.0,
+    commission=1.0,          # EUR flat per order
+    market_calendar="XETR",  # alternatively "NYSE"
+)
+```
+
+Configuration is persisted once in `config.json` inside the run directory
+and automatically inherited on all subsequent starts.
+
+---
+
+### 8 · Extended `reset_run()` with `auto_ensure`
+
+```python
+libb.reset_run(cli_check=False, auto_ensure=True)
+```
+
+`auto_ensure=True` automatically performs after deletion:
+- Recreate filesystem (`ensure_file_system`)
+- Re-hydrate disk state into memory (`_hydrate_from_disk`)
+- Reset runtime state (counters, timestamps, snapshots)
+
+The result is a fresh instance without restarting the Python process.
+
+---
+
+## Example Workflow (Extended)
+
 ```python
 from libb import LIBBmodel
 from libb.other.parse import parse_json
+from user_side.prompt_orchestration.prompt_models import prompt_daily_report
 
-# See user_side/prompt_orchestration/prompt_models.py for a full prompting example
-MODELS = ["deepseek", "gpt-4.1"]
+MODELS = ["groq", "deepseek", "gpt-4.1"]
 
 def daily_flow():
     for model in MODELS:
-        libb = LIBBmodel(f"user_side/runs/run_v1/{model}")
+        libb = LIBBmodel(
+            f"user_side/runs/run_v1/{model}",
+            commission=1.0,
+            market_calendar="XETR",
+        )
         libb.process_portfolio()
 
         daily_report = prompt_daily_report(libb)
 
         libb.save_daily_update(daily_report)
+        libb.analyze_sentiment(daily_report, report_type="daily")
 
         orders_json = parse_json(daily_report, "ORDERS_JSON")
         libb.save_orders(orders_json)
-
-        libb.analyze_sentiment(daily_report, report_type="daily")
-
-    return
 ```
 
 ---
 
-## Created File Tree
+## Generated Directory Layout
 
-After running for the first time, LIBB generates a fixed directory structure at the user-specified output path.
 ```text
 <output_dir>/
-├── metrics/                  # evaluation outputs
+├── config.json               # run configuration (written once)
+├── metrics/
 │   ├── behavior.json
 │   ├── performance.json
 │   └── sentiment.json
-│
-├── portfolio/                # live trading state & history
-│   ├── cash.json             # authoritative current cash balance
+├── portfolio/
+│   ├── cash.json
 │   ├── pending_trades.json
-│   ├── portfolio.csv         # current positions only
-│   ├── portfolio_history.csv # daily equity & cash snapshots
-│   ├── position_history.csv  # per-position daily history
+│   ├── portfolio.csv
+│   ├── portfolio_history.csv
+│   ├── position_history.csv
 │   └── trade_log.csv
-│
-├── logging/                  # per-run execution logs (JSON)
-│
-└── research/                 # generated analysis & reports
+├── logging/
+└── research/
     ├── daily_reports/
     └── deep_research/
 ```
 
-No manual file setup is required. LIBB will use this file tree to save
-artifacts for all future runs in the output directory.
-
 ---
 
-## Getting Started
+## Installation
 
-This guide shows two supported setup paths:
+### Recommended: Virtual Environment
 
-- **Option A (Recommended): Virtual Environment**
-- **Option B: Global / No Virtual Environment**
-
-Choose the option that best fits your workflow.
-
-> **Note:** Installation requires internet access. Dependencies including
-> `yfinance` and `pysentiment2` download data and lexicon files on first use.
-
----
-
-## Option A: Virtual Environment (Recommended)
-
-This option isolates dependencies and avoids conflicts with other Python projects.
-
-### 1. Clone the Repository
 ```bash
-git clone https://github.com/LuckyOne7777/LLM-Investor-Behavior-Benchmark.git
+git clone https://github.com/<your-fork>/LLM-Investor-Behavior-Benchmark.git
 cd LLM-Investor-Behavior-Benchmark
-```
-
-Verify contents:
-```bash
-ls
-```
-
-You should see folders like libb/, user_side/, and requirements.txt.
-
-### 2. Create a Virtual Environment
-
-Windows:
-```bash
 python -m venv .venv
-```
 
-macOS / Linux:
-```bash
-python3 -m venv .venv
-```
-
-### 3. Activate the Virtual Environment
-
-Windows (PowerShell)
-If activation fails due to script execution policy, run once:
-```bash
-Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
-```
-
-Then activate:
-```bash
+# Windows (PowerShell)
 .venv\Scripts\activate
-```
 
-Windows (Command Prompt alternative)
-```bash
-.venv\Scripts\activate.bat
-```
-
-macOS / Linux
-```bash
+# macOS / Linux
 source .venv/bin/activate
-```
 
-Verify activation:
-```bash
-python --version
-```
-
-You should see (.venv) in your shell prompt.
-
-### 4. Install Dependencies
-```bash
 pip install --upgrade pip
 pip install -r requirements.txt
 pip install -e .
 ```
 
-### 5. Verify Installation
+### Verify dependencies
 ```bash
 python -c "import libb; print(libb.__file__)"
 ```
 
-Expected output should point to `libb/__init__.py`.
+### Set API Keys
 
-### 6. Set Environment Variables
-
-macOS / Linux:
+**Option A – Environment variables (classic)**
 ```bash
-export OPENAI_API_KEY="your_key_here"
-export DEEPSEEK_API_KEY="your_key_here"
+# Windows PowerShell
+setx GROQ_API_KEY "your_key"
+setx OPENAI_API_KEY "your_key"
+setx DEEPSEEK_API_KEY "your_key"
 ```
 
-Windows (PowerShell):
-```bash
-setx OPENAI_API_KEY "your_key_here"
-setx DEEPSEEK_API_KEY "your_key_here"
-```
+**Option B – Encrypted key store (recommended)**  
+Start the dashboard and enter keys under **Settings → API Keys** — keys are stored
+Fernet-encrypted locally.
 
-Restart the terminal after using setx.
+### Start
 
-### 7. Run an Example Workflow
 ```bash
+# Dashboard only
+python dashboard.py
+
+# Dashboard + automatic scheduler (Mon–Fri 21:45 UTC)
+python app.py
+
+# Workflow only (one-shot)
 python -m user_side.workflow
+
+# Backtest
+python -c "
+from user_side.backtesting_workflow import smallcap_backtest
+smallcap_backtest('user_side/runs/run_v1/groq', start='2025-01-01')
+"
 ```
-
-### 8. Exit the Virtual Environment
-
-To remove the virtual environment entirely:
-
-Linux / macOS:
-```bash
-rm -rf .venv
-```
-
-Windows:
-```bash
-Remove-Item -Recurse -Force .venv
-```
-
----
-
-## Option B: Global Setup (No Virtual Environment)
-
-This option installs dependencies into the active Python environment.
-Recommended only for users comfortable managing global Python packages.
-
-### 1. Clone the Repo
-```bash
-git clone https://github.com/LuckyOne7777/LLM-Investor-Behavior-Benchmark.git
-cd LLM-Investor-Behavior-Benchmark
-```
-
-### 2. Verify Python Version
-
-LIBB requires Python 3.10 or newer.
-```bash
-python --version
-```
-
-### 3. Upgrade pip
-```bash
-python -m pip install --upgrade pip
-```
-
-### 4. Install Dependencies Globally
-```bash
-pip install -r requirements.txt
-pip install -e .
-```
-
-Verify installation:
-```bash
-python -c "import libb; print(libb.__file__)"
-```
-
-### 5. Set Environment Variables
-
-Same as Option A.
-
-### 6. Run an Example Workflow
-```bash
-python -m user_side.workflow
-```
-
----
-
-### Optional: Uninstall
-```bash
-pip uninstall libb
-```
-
-### Notes
-
-Dependencies may remain installed if they were already present.
-
-Windows users may encounter PowerShell execution policy restrictions.
-
-Command Prompt can be used instead of PowerShell if preferred.
-
-Execution scheduling and orchestration are intentionally left to the user.
 
 ---
 
 ## Research Directions
 
-LIBB is an exploratory research library, and its development is driven
-by ongoing areas of improvement rather than a fixed roadmap.
+Current areas of interest:
 
-Areas of current interest include:
-
-- Completion of remaining behavioral metric stubs (momentum factor,
-  volatility tolerance, risk aversion)
+- Completing remaining behavioral metrics (momentum factor, volatility tolerance, risk aversion)
 - Deeper integration of performance analytics into the core workflow
-- Expansion of sentiment analytics across multiple data sources
-- Improved tooling for comparing runs and strategies over time
-- Config system for centralizing experiment parameters and data source preferences
+- Expanding sentiment analysis to multiple data sources
+- Improved tooling for comparing runs and strategies
+- Config system to centralize experiment parameters
 - General design improvements for efficiency and code quality
 
-To see the current roadmap for major features, check out: [roadmap.md](docs/short-term-roadmap.md)
+Current roadmap: [short-term-roadmap.md](docs/short-term-roadmap.md)
 
-These directions reflect current research interests and may evolve,
-change, or be abandoned as the project develops.
+---
+
+## Documentation
+
+New here? Start here → **[Documentation Guide](docs/README.md)**
+
+---
+
+## License
+
+This project is licensed under the same license as the original project.
+See [LICENSE](LICENSE).

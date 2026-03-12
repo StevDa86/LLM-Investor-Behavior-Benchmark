@@ -5,13 +5,22 @@ import pandas as pd
 from ..other.types_file import Order
 from pathlib import Path
 
-def process_buy(order: Order, portfolio_df: pd.DataFrame, cash: float, trade_log_path: Path) -> tuple[pd.DataFrame, float, bool]:
+def process_buy(order: Order, portfolio_df: pd.DataFrame, cash: float, trade_log_path: Path, commission: float = 0.0) -> tuple[pd.DataFrame, float, bool]:
     ticker = order["ticker"].upper()
     date = order["date"]
     order_type = order["order_type"].upper()
     shares = int(order["shares"])
     intended_limit_price = order["limit_price"]
     stop_loss = 0 if order["stop_loss"] is None else order["stop_loss"]
+
+    # ---------- MAX POSITIONS GUARD ----------
+    existing_tickers = set(portfolio_df["ticker"].str.upper()) if not portfolio_df.empty else set()
+    if ticker not in existing_tickers and len(existing_tickers) >= 5:
+        reason = f"MAX_POSITIONS_REACHED (5): cannot initiate {ticker} while holding {sorted(existing_tickers)}"
+        trade_dict = order_to_trade_schema(order, executed_price=None, PnL=None,
+                                           status="FAILED", reason=reason)
+        append_log(trade_log_path, trade_dict)
+        return portfolio_df, cash, False
 
     ticker_data = download_data_on_given_date(ticker, date)
     market_low = ticker_data["Low"]
@@ -41,7 +50,7 @@ def process_buy(order: Order, portfolio_df: pd.DataFrame, cash: float, trade_log
             return portfolio_df, cash, False
 
         fill_price = market_open if market_open <= intended_limit_price else intended_limit_price
-        cost = shares * fill_price
+        cost = shares * fill_price + commission
 
         if cost > cash:
             reason = f"Insufficient cash"
@@ -52,7 +61,7 @@ def process_buy(order: Order, portfolio_df: pd.DataFrame, cash: float, trade_log
 
 
         trade_dict = order_to_trade_schema(order, executed_price=fill_price, PnL=None,
-                                               status="FILLED", reason="")
+                                               status="FILLED", reason=f"commission={commission}")
         append_log(trade_log_path, trade_dict)
 
         portfolio_df = add_or_update_position(
@@ -72,7 +81,7 @@ def process_buy(order: Order, portfolio_df: pd.DataFrame, cash: float, trade_log
         # return portfolio if null order
         if not catch_missing_order_data(order, required_cols, trade_log_path):
             return portfolio_df, cash, False
-        cost = shares * market_open
+        cost = shares * market_open + commission
 
         if cost > cash:
             reason = f"Insufficient cash"
@@ -83,7 +92,7 @@ def process_buy(order: Order, portfolio_df: pd.DataFrame, cash: float, trade_log
 
 
         trade_dict = order_to_trade_schema(order, executed_price=market_open, PnL=None,
-                                               status="FILLED", reason="")
+                                               status="FILLED", reason=f"commission={commission}")
         append_log(trade_log_path, trade_dict)
 
         portfolio_df = add_or_update_position(

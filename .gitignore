@@ -78,3 +78,7 @@ Thumbs.db
 *.pem
 *.key
 *.crt
+
+# API key store (encrypted, but must never be committed)
+secrets.key
+secrets.json

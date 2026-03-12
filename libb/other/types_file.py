@@ -122,6 +122,9 @@ class DiskLayout:
     pending_trades_path: Path
     cash_path: Path
 
+    # config file
+    config_path: Path
+
     # metrics files
     performance_path: Path
     behavior_path: Path
@@ -158,4 +161,5 @@ class DiskLayout:
             performance_path=metrics_dir / "performance.json",
             behavior_path=metrics_dir / "behavior.json",
             sentiment_path=metrics_dir / "sentiment.json",
+            config_path=root / "config.json",
         )

@@ -6,30 +6,20 @@ from ..other.types_file import Order, TradeStatus
 import pandas as pd
 from pathlib import Path
 
-def process_order(order: Order, portfolio_df: pd.DataFrame, cash: float, trade_log_path: Path) -> tuple[pd.DataFrame, float, TradeStatus]:
+
+def process_order(order: Order, portfolio_df: pd.DataFrame, cash: float, trade_log_path: Path, commission: float = 0.0) -> tuple[pd.DataFrame, float, TradeStatus]:
     action = str(order["action"])
 
     if action == "b":
-        portfolio_df, cash, status = process_buy(order, portfolio_df, cash, trade_log_path)
-
-        if status:
-            return portfolio_df, cash, TradeStatus.FILLED
-        else: 
-            return portfolio_df, cash, TradeStatus.FAILED
+        portfolio_df, cash, status = process_buy(order, portfolio_df, cash, trade_log_path, commission=commission)
+        return portfolio_df, cash, TradeStatus.FILLED if status else TradeStatus.FAILED
 
     if action == "s":
-        portfolio_df, cash, status = process_sell(order, portfolio_df, cash, trade_log_path)
-
-        if status:
-            return portfolio_df, cash, TradeStatus.FILLED
-        else: 
-             return portfolio_df, cash, TradeStatus.FAILED
+        portfolio_df, cash, status = process_sell(order, portfolio_df, cash, trade_log_path, commission=commission)
+        return portfolio_df, cash, TradeStatus.FILLED if status else TradeStatus.FAILED
 
     if action == "u":
-        if update_stoploss(portfolio_df, order, trade_log_path):
-            return portfolio_df, cash, TradeStatus.FILLED
-        else:
-            return portfolio_df, cash, TradeStatus.FAILED
+        return portfolio_df, cash, TradeStatus.FILLED if update_stoploss(portfolio_df, order, trade_log_path) else TradeStatus.FAILED
 
     else:
         reason = "UNKNOWN ORDER ACTION"
@@ -37,4 +27,3 @@ def process_order(order: Order, portfolio_df: pd.DataFrame, cash: float, trade_l
                                            status="FAILED", reason=reason)
         append_log(trade_log_path, trade_dict)
         return portfolio_df, cash, TradeStatus.FAILED
-

@@ -100,3 +100,56 @@ def is_nyse_open(date: dt.date) -> bool:
     """
     schedule = nyse.schedule(start_date=date, end_date=date)
     return not schedule.empty
+
+_calendar_cache: dict[str, mcal.MarketCalendar] = {}
+
+def is_market_open(date: dt.date, calendar_name: str = "NYSE") -> bool:
+    """
+    Check if a given market calendar is open on a given date.
+
+    Parameters
+    ----------
+    date : datetime.date
+    calendar_name : str
+        pandas_market_calendars exchange name (e.g. "NYSE", "XETRA", "LSE").
+        Defaults to "NYSE".
+
+    Returns
+    -------
+    bool
+        True if the market is open, False otherwise.
+    """
+    if calendar_name not in _calendar_cache:
+        _calendar_cache[calendar_name] = mcal.get_calendar(calendar_name)
+    cal = _calendar_cache[calendar_name]
+    schedule = cal.schedule(start_date=date, end_date=date)
+    return not schedule.empty
+
+
+def next_trading_day(from_date: dt.date, calendar_name: str = "NYSE", max_lookahead: int = 14) -> dt.date:
+    """
+    Return the next open trading day strictly after `from_date`.
+
+    Parameters
+    ----------
+    from_date : datetime.date
+        The reference date (today / run_date). The returned date is always > from_date.
+    calendar_name : str
+        pandas_market_calendars exchange name (e.g. "NYSE", "XETRA"). Defaults to "NYSE".
+    max_lookahead : int
+        Maximum days to search ahead before raising. Covers long holiday breaks.
+
+    Returns
+    -------
+    datetime.date
+        The next open trading day after `from_date`.
+    """
+    candidate = from_date + dt.timedelta(days=1)
+    for _ in range(max_lookahead):
+        if is_market_open(candidate, calendar_name):
+            return candidate
+        candidate += dt.timedelta(days=1)
+    raise RuntimeError(
+        f"No open trading day found within {max_lookahead} days after {from_date} "
+        f"on calendar '{calendar_name}'."
+    )

@@ -1,221 +1,222 @@
-import user_side.prompt_orchestration.get_prompt_data as get_prompt_data
 from libb.model import LIBBmodel
+from libb.execution.utils import next_trading_day
+from user_side.prompt_orchestration.get_prompt_data import get_market_candidates
 
+MAX_POSITIONS = 5
 
 # -------------------------------------------------------------------
-# STATIC PROMPT SECTIONS
+# STATIC SECTIONS (portfolio-state-independent)
 # -------------------------------------------------------------------
-
-SYSTEM_HEADER = """System Message
-
-You are a portfolio reviewer operating in DAILY Check Mode. Your job is to
-evaluate the portfolio based ONLY on the data provided (portfolio, prices,
-stop-losses, daily benchmark, and any US news headlines explicitly supplied).
-Today is {today}.
-
-You MUST NOT fabricate news, catalysts, or events. If no US news headlines are
-provided, assume: “No material news today.” Never infer unsent data.
-
-Daily Mode is incremental. You may issue AT MOST ONE trade per day.
-"""
-
 
 CAPITAL_RULE = """
----------------------------------------------------------------------------
-CAPITAL RULE
----------------------------------------------------------------------------
-Use the live portfolio state provided (cash, positions, cost basis, stops,
-pnl). Do NOT reset or assume any starting capital.
+## CAPITAL RULE
+Use the live portfolio state provided (cash, positions, cost basis, stops, pnl).
+Do NOT reset or assume any starting capital.
 """
-
 
 PORTFOLIO_SECTION = """
----------------------------------------------------------------------------
-CURRENT PORTFOLIO
----------------------------------------------------------------------------
-This is your EXACT portfolio:
-[{portfolio_text}]
+## CURRENT PORTFOLIO
+{portfolio_text}
 """
 
-
 LOGS_SECTION = """
----------------------------------------------------------------------------
-RECENT LOGS
----------------------------------------------------------------------------
+## RECENT EXECUTION LOGS
 {logs_text}
 """
 
-
-DAILY_OBJECTIVES = """
----------------------------------------------------------------------------
-DAILY OBJECTIVES
----------------------------------------------------------------------------
-Each day you must:
-
-• Check stop-loss triggers.
-• Evaluate price action since yesterday.
-• Assess risk, exposure, concentration, and liquidity.
-• Decide whether to hold, trim, add, exit, or (rarely) initiate.
-• Produce at most one order.
-• Respect limit-price discipline: ±10% of last close unless justified.
-• All orders must be full shares.
-• All orders must be LIMIT DAY.
-• Execution_date = next trading day.
-• If no trade is justified, return an empty order array.
-• you MUST have at least 1 ticker in your portfolio at all times.
-
-Daily mode should be conservative. HOLD is the most common outcome.
-"""
-
-
 FAILED_ORDER_HANDLING = """
----------------------------------------------------------------------------
-FAILED ORDER HANDLING
----------------------------------------------------------------------------
-You will be provided with an execution log that may include failed orders, e.g.:
-
-• "order failed: limit price not met"
-• "order rejected: insufficient cash"
-• "order rejected: insufficient shares"
-
-You may reference these in today’s analysis but they MUST NOT cause
-overreaction or revenge trading. Adjust sizing or approach only if justified.
+## FAILED ORDER HANDLING
+Execution log may show: "limit not met", "insufficient cash",
+"MAX_POSITIONS_REACHED (5)". Do NOT overreact or revenge trade.
+Adjust only if clearly justified.
 """
-
 
 CONCENTRATION_RULE = """
----------------------------------------------------------------------------
-CONCENTRATION RULE
----------------------------------------------------------------------------
-If concentration > 60% in any position:
-• You must either justify it OR reduce exposure.
-• Justification must be clear and rational.
-• If unjustifiable, you MUST resize.
+## CONCENTRATION RULE
+Concentration > 60% in any single position: justify clearly OR reduce exposure.
 """
 
-
-US_NEWS_SECTION = """
----------------------------------------------------------------------------
-US NEWS HANDLING
----------------------------------------------------------------------------
-You may ONLY use US news headlines explicitly provided in the input under
-US_NEWS. If none exist, assume no material news.
-
-Do not fetch or invent headline content.
-
-US_NEWS: 
-
-[{news}]
+TRADING_FEE_RULE = """
+## TRADING FEE
+Every filled order costs {commission:.2f} EUR flat, deducted automatically.
+Factor this into position sizing. Minimum recommended trade: {min_trade:.2f} EUR
+(fee ≤ 5% of trade value).
 """
 
-
-DAILY_OUTPUT_REQUIREMENTS = """
----------------------------------------------------------------------------
-DAILY OUTPUT FORMAT
----------------------------------------------------------------------------
-
-You MUST output exactly three blocks:
-
-1. DAILY_ANALYSIS  
-   Natural text. Must cover:
-   • US news (or “no material news”)
-   • price action
-   • stop-loss checks
-   • risk review
-   • today’s decision and rationale
-
-
-2. ORDERS_JSON  
-   Pure JSON array of orders OR empty list.
-
-3. CONFIDENCE_LVL
-   Float between 0.0 (little) and 1.0 (high) rating confidence about future portfolio performance. 
+UNIVERSE_RULE = """
+## UNIVERSE RULE
+• Only stocks priced ≤ 10 EUR (or local currency equivalent).
+• MAX 5 positions simultaneously. Engine-enforced.
+• NO new ticker while holding 5 — a slot opens only when a SELL is FILLED.
+• Ticker format (yfinance): US: plain | XETRA: TICKER.DE | London: TICKER.L
+  Amsterdam: TICKER.AS | Paris: TICKER.PA | Toronto: TICKER.TO
+• CRITICAL: Only use tickers that are actively traded with significant volume.
+  Do NOT invent or guess ticker symbols.
 """
 
+MARKET_CANDIDATES_SECTION = """
+## VERIFIED MARKET CANDIDATES (≤ 10 EUR / USD as of today)
+The following stocks from the candidate universe currently trade BELOW the
+price limit. You MUST pick from this list when opening new positions.
+Do NOT use any ticker NOT in this list unless it is already in your portfolio.
 
-OUTPUT_TEMPLATE = """
----------------------------------------------------------------------------
-OUTPUT TEMPLATE (STRICT)
----------------------------------------------------------------------------
+{candidates}
+
+→ Choose tickers from the list above. Set your limit_price ≤ the Close shown.
+"""
+
+OUTPUT_FORMAT = """
+## OUTPUT FORMAT
+Output exactly three blocks:
 
 <DAILY_ANALYSIS>
-...daily analysis...
+...analysis, rationale for each decision...
 </DAILY_ANALYSIS>
 
-{orders_section}
+<ORDERS_JSON>
+{{"orders": [
+  {{"action":"b","ticker":"TICK.XX","shares":N,"order_type":"LIMIT",
+   "limit_price":0.00,"time_in_force":"DAY","date":"YYYY-MM-DD",
+   "stop_loss":0.00,"rationale":"...","confidence":0.0}}
+]}}
+</ORDERS_JSON>
+
+If no trade: <ORDERS_JSON>{{"orders": []}}</ORDERS_JSON>
 
 <CONFIDENCE_LVL>
 0.65
 </CONFIDENCE_LVL>
 
-STRICT RULE:
-The JSON MUST be pure and contain no extra text or comments.
+JSON MUST be pure — no extra text, comments, or markdown.
 """
 
-orders_section = """<ORDERS_JSON>
-{
-  "orders": [
-      {
-  "action": "b" | "s" | "u",
-  "ticker": "XYZ",
-  "shares": 1,
-  "order_type": "LIMIT" | "MARKET" | "UPDATE",
-  "limit_price": 10.25 | null,
-  "time_in_force": "DAY" | null,
-  "date": "YYYY-MM-DD",
-  "stop_loss": 8.90 | null,
-  "rationale": "short justification",
-  "confidence": 0.80
-      }
-  ]
-}
-</ORDERS_JSON>
 
-If no trade is taken:
+# -------------------------------------------------------------------
+# DYNAMIC SECTIONS (depend on portfolio state)
+# -------------------------------------------------------------------
 
-<ORDERS_JSON>
-{
-  "orders": []
-}
-</ORDERS_JSON>"""
+def _system_header(today, positions_count: int, free_slots: int, cash: float) -> str:
+    if positions_count == 0:
+        situation = (
+            f"Your portfolio is EMPTY. You have {cash:.2f} EUR and {free_slots} open slots.\n"
+            "You MUST initiate at least 1 new buy position today. "
+            "Holding all-cash is NOT acceptable — deploy capital."
+        )
+    elif free_slots > 0:
+        situation = (
+            f"You hold {positions_count} position(s) with {free_slots} open slot(s) "
+            f"and {cash:.2f} EUR available cash.\n"
+            "Manage existing positions AND actively seek new candidates to fill open slots. "
+            "Opening new positions is strongly encouraged when suitable stocks exist."
+        )
+    else:
+        situation = (
+            f"Your portfolio is FULL ({MAX_POSITIONS}/{MAX_POSITIONS} positions). "
+            f"Available cash: {cash:.2f} EUR.\n"
+            "Evaluate every holding: HOLD, ADD shares to existing position, TRIM, or EXIT."
+        )
+
+    return (
+        f"## System\n"
+        f"You are a portfolio manager in DAILY Mode. Today is {today}.\n\n"
+        f"{situation}\n\n"
+        "NO NEWS MODE: base all decisions strictly on price action, stop-loss levels,\n"
+        "fundamentals (from your own knowledge), and portfolio logic.\n"
+        "Do NOT fabricate or invent news, events, or catalysts.\n"
+    )
+
+
+def _objectives(positions_count: int, free_slots: int, execution_date: str) -> str:
+    max_orders = min(free_slots + 2, 3) if free_slots > 0 else 2
+
+    if positions_count == 0:
+        return (
+            "\n## DAILY OBJECTIVES\n"
+            "• You MUST place at least 1 buy order for a stock priced ≤ 10 EUR.\n"
+            "• Choose from any major exchange (XETRA, NYSE, NASDAQ, LSE, Euronext, etc.).\n"
+            "• Set a stop-loss on every buy (typically 10–20% below entry price).\n"
+            "• Full integer shares only. LIMIT orders preferred.\n"
+            f"• Execution_date for ALL orders: {execution_date}  ← use this exact date, no other.\n"
+            "• Allocate at least 20 EUR per position (keep fee impact below 5%).\n"
+        )
+    elif free_slots > 0:
+        return (
+            f"\n## DAILY OBJECTIVES\n"
+            f"• Existing positions: check stop-loss triggers, price action, unrealized PnL.\n"
+            f"  → For each: decide HOLD, ADD, TRIM, or EXIT.\n"
+            f"• Open slots ({free_slots} available): actively evaluate new candidates ≤ 10 EUR.\n"
+            f"  → Initiate a new position if a suitable stock exists. Do not stay in cash unnecessarily.\n"
+            f"• Up to {max_orders} orders today (buys + sells combined). LIMIT DAY only.\n"
+            f"• Full integer shares. Stop-loss required on all new buys.\n"
+            f"• Execution_date for ALL orders: {execution_date}  ← use this exact date, no other.\n"
+        )
+    else:
+        return (
+            "\n## DAILY OBJECTIVES\n"
+            "• Portfolio is full — no new tickers until an existing position is sold.\n"
+            "• Check every position for stop-loss triggers and price action.\n"
+            "• Decide for each: HOLD, ADD shares (uses cash), TRIM, or EXIT.\n"
+            "• Up to 2 orders today. LIMIT DAY only. Full integer shares.\n"
+            f"• Execution_date for ALL orders: {execution_date}  ← use this exact date, no other.\n"
+        )
 
 
 # -------------------------------------------------------------------
 # MAIN FUNCTION
 # -------------------------------------------------------------------
 
-def create_daily_prompt(libb: LIBBmodel):
-    portfolio = libb.portfolio
-    today = libb.run_date
-    news = get_prompt_data.get_macro_news()
-    logs = libb.recent_execution_logs()
+def create_daily_prompt(libb: LIBBmodel) -> str:
+    portfolio  = libb.portfolio
+    today      = libb.run_date
+    commission = libb.commission
+    logs       = libb.recent_execution_logs()
 
-    portfolio_text = (
-        portfolio.to_string(index=False)
-        if not portfolio.empty
-        else (
-            "You have 0 active positions and must make at least one trade "
-            f"to fulfill portfolio requirements. Starting cash: {libb.STARTING_CASH}"
+    positions_count = len(portfolio) if not portfolio.empty else 0
+    free_slots      = MAX_POSITIONS - positions_count
+    cash            = libb.cash
+
+    # Compute the next open trading day for this run's market calendar
+    execution_date = str(next_trading_day(today, libb.market_calendar))
+
+    # Portfolio block
+    if portfolio.empty:
+        portfolio_text = (
+            f"No active positions.\n"
+            f"Available cash : {cash:.2f} EUR\n"
+            f"Open slots     : {free_slots} / {MAX_POSITIONS}\n"
+            f"Trading fee    : {commission:.2f} EUR per filled order"
         )
-    )
+    else:
+        portfolio_text = (
+            f"Positions ({positions_count}/{MAX_POSITIONS}), "
+            f"free slots: {free_slots}, "
+            f"available cash: {cash:.2f} EUR\n\n"
+            + portfolio.to_string(index=False)
+        )
 
+    # Logs block
     logs_text = (
         logs.to_string(index=False)
         if not isinstance(logs, str) and not logs.empty
         else "No recent trade logs."
     )
 
-    daily_prompt = (
-        SYSTEM_HEADER.format(today=today)
+    min_trade_value = commission / 0.05 if commission > 0 else 0.0
+
+    # Candidates block – fetch live/historical prices for the universe
+    already_held = list(portfolio["ticker"].str.upper()) if not portfolio.empty else []
+    candidates_text = get_market_candidates(today, price_limit=10.0, already_held=already_held)
+
+    return (
+        _system_header(today, positions_count, free_slots, cash)
         + CAPITAL_RULE
         + PORTFOLIO_SECTION.format(portfolio_text=portfolio_text)
         + LOGS_SECTION.format(logs_text=logs_text)
-        + DAILY_OBJECTIVES
+        + _objectives(positions_count, free_slots, execution_date)
         + FAILED_ORDER_HANDLING
         + CONCENTRATION_RULE
-        + US_NEWS_SECTION.format(news=news)
-        + DAILY_OUTPUT_REQUIREMENTS
-        + OUTPUT_TEMPLATE.format(orders_section=orders_section)
+        + TRADING_FEE_RULE.format(commission=commission, min_trade=min_trade_value)
+        + UNIVERSE_RULE
+        + MARKET_CANDIDATES_SECTION.format(candidates=candidates_text)
+        + OUTPUT_FORMAT
     )
-
-    return daily_prompt
