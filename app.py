@@ -2,7 +2,8 @@
 LLM-IBB – Gesamtapp
 ====================
 Startet den Web-Dashboard-Server UND führt den Trading-Workflow
-automatisch nach Börsenschluss (Montag–Freitag, 21:45 UTC ≈ 16:45 ET) aus.
+automatisch dreimal täglich (Mo–Fr, Lokalzeit) aus:
+  09:00 → morning  |  16:00 → midday  |  18:00 → evening
 
 Start:
     python app.py
@@ -14,8 +15,12 @@ Dann im Browser (von beliebigem Gerät im Netz):
 import threading
 import time
 import sys
+import logging
 import schedule
 from pathlib import Path
+
+# Werkzeug-Access-Log auf Fehler/Warnungen beschränken (keine GET /api/... 200-Zeilen)
+logging.getLogger("werkzeug").setLevel(logging.WARNING)
 
 # Projektwurzel im Suchpfad sicherstellen
 sys.path.insert(0, str(Path(__file__).parent))
@@ -24,32 +29,85 @@ sys.path.insert(0, str(Path(__file__).parent))
 from libb.other.key_store import load_into_environ
 load_into_environ()
 
-from dashboard import app  # Flask-App importieren
+from dashboard import app, append_workflow_log  # Flask-App importieren
+
+
+# ─── Bootstrap ────────────────────────────────────────────────────────────────
+
+def bootstrap_runs() -> None:
+    """Ensure every model in MODELS has its run directory initialised on disk.
+
+    LIBBmodel.__init__ calls ensure_file_system() which creates all required
+    subdirectories and seed files.  We only do this for models whose directory
+    does not yet exist so we never overwrite existing data.
+    """
+    from user_side.workflow import MODELS
+    from libb import LIBBmodel
+
+    runs_base = Path("user_side/runs/run_v1")
+    for model in MODELS:
+        run_path = runs_base / model
+        if not run_path.exists():
+            try:
+                LIBBmodel(str(run_path))
+                print(f"[Bootstrap] Run-Verzeichnis für '{model}' erstellt.")
+            except Exception as exc:
+                print(f"[Bootstrap] Fehler beim Erstellen von '{model}': {exc}")
+        else:
+            print(f"[Bootstrap] '{model}' bereits vorhanden – übersprungen.")
 
 
 # ─── Scheduler ────────────────────────────────────────────────────────────────
 
-def run_workflow():
-    """Führt den täglichen Workflow aus (wird im Hintergrundthread aufgerufen)."""
+def run_workflow(slot: str):
+    """Führt den Workflow für den angegebenen Slot aus (Hintergrundthread)."""
     try:
-        print("[Scheduler] Starte Workflow …")
+        append_workflow_log(f"[Scheduler] Starte Workflow [{slot}] …")
         from user_side.workflow import main
-        main()
-        print("[Scheduler] Workflow erfolgreich abgeschlossen.")
+        main(slot=slot, log_fn=append_workflow_log)
+        append_workflow_log(f"[Scheduler] Workflow [{slot}] erfolgreich abgeschlossen.")
     except Exception as e:
-        print(f"[Scheduler] Fehler im Workflow: {e}")
+        append_workflow_log(f"[Scheduler] Fehler im Workflow [{slot}]: {e}")
 
 
 def scheduler_loop():
-    """Läuft als Daemon-Thread und prüft jede Minute auf fällige Tasks."""
-    # Workflow Mo–Fr um 21:45 UTC (≈ 16:45 ET = nach NYSE-Schluss)
-    schedule.every().monday.at("21:45").do(run_workflow)
-    schedule.every().tuesday.at("21:45").do(run_workflow)
-    schedule.every().wednesday.at("21:45").do(run_workflow)
-    schedule.every().thursday.at("21:45").do(run_workflow)
-    schedule.every().friday.at("21:45").do(run_workflow)
+    """Läuft als Daemon-Thread und prüft jede Minute auf fällige Tasks.
 
-    print("[Scheduler] Aktiv – Workflow läuft Mo–Fr um 21:45 UTC automatisch.")
+    WICHTIG: Für jede Tag/Zeit-Kombination muss schedule.every().<day> separat
+    aufgerufen werden, da jeder Aufruf ein NEUES unabhängiges Job-Objekt erzeugt.
+    Wird dasselbe Job-Objekt mehrfach mit .at().do() konfiguriert, überschreibt
+    der letzte Aufruf alle vorherigen – nur der letzte Slot würde laufen!
+    """
+    # Tages-Trading-Slots (Börse geöffnet / aktiv)
+    day_slots = [
+        ("09:00", "morning"),
+        ("12:00", "noon"),
+        ("16:00", "midday"),
+        ("18:00", "evening"),
+    ]
+    for time_str, slot in day_slots:
+        schedule.every().monday.at(time_str).do(run_workflow, slot=slot)
+        schedule.every().tuesday.at(time_str).do(run_workflow, slot=slot)
+        schedule.every().wednesday.at(time_str).do(run_workflow, slot=slot)
+        schedule.every().thursday.at(time_str).do(run_workflow, slot=slot)
+        schedule.every().friday.at(time_str).do(run_workflow, slot=slot)
+
+    # Nightly Deep Research – nach US-Börsenschluss, Mo–Fr 22:00
+    schedule.every().monday.at("22:00").do(run_workflow, slot="night")
+    schedule.every().tuesday.at("22:00").do(run_workflow, slot="night")
+    schedule.every().wednesday.at("22:00").do(run_workflow, slot="night")
+    schedule.every().thursday.at("22:00").do(run_workflow, slot="night")
+    schedule.every().friday.at("22:00").do(run_workflow, slot="night")
+
+    # Samstags-Fundamentalanalyse – einmal wöchentlich 10:00
+    schedule.every().saturday.at("10:00").do(run_workflow, slot="weekend")
+
+    print(
+        "[Scheduler] Aktiv – "
+        "Trading: Mo–Fr 09:00 / 12:00 / 16:00 / 18:00 | "
+        "Deep Research: Mo–Fr 22:00 | "
+        "Fundamental Review: Sa 10:00 (Lokalzeit)."
+    )
     while True:
         schedule.run_pending()
         time.sleep(30)
@@ -58,6 +116,9 @@ def scheduler_loop():
 # ─── Einstieg ─────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    # Fehlende Run-Verzeichnisse für alle konfigurierten Modelle anlegen
+    bootstrap_runs()
+
     # Scheduler im Hintergrundthread starten
     scheduler_thread = threading.Thread(
         target=scheduler_loop, daemon=True, name="llm-ibb-scheduler"
@@ -68,12 +129,15 @@ if __name__ == "__main__":
     PORT = 5000
 
     print()
-    print("╔══════════════════════════════════════════════════╗")
-    print("║          LLM-IBB – Gesamtapp gestartet           ║")
-    print(f"║  Dashboard:  http://{HOST}:{PORT}                  ║")
-    print("║  Vom Netzwerk erreichbar über die IP dieses Hosts║")
-    print("║  Scheduler:  Mo–Fr 21:45 UTC (nach NYSE-Schluss) ║")
-    print("╚══════════════════════════════════════════════════╝")
+    print("╔══════════════════════════════════════════════════════════╗")
+    print("║            LLM-IBB – Gesamtapp gestartet                 ║")
+    print(f"║  Dashboard   :  http://{HOST}:{PORT}                        ║")
+    print("║  Trading     :  Mo–Fr  09:00 / 12:00 / 16:00 / 18:00   ║")
+    print("║  Deep Res.   :  Mo–Fr  22:00  (nach US-Börsenschluss)   ║")
+    print("║  Fundamental :  Sa     10:00  (Unternehmensanalyse)      ║")
+    print("╚══════════════════════════════════════════════════════════╝")
     print()
 
     app.run(host=HOST, port=PORT, debug=False, threaded=True)
+
+

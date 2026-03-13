@@ -99,6 +99,7 @@ class Log:
     orders_skipped: int
     portfolio_value: float
     error: str | Exception | None = None
+    slot: str = ""
 
 @dataclass(frozen=True)
 class DiskLayout:

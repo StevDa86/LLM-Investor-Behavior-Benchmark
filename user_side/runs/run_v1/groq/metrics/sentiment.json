@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "subjectivity": 0.1569230764402367,
+    "polarity": -0.41176469780853536,
+    "positive_count": 15,
+    "negative_count": 36,
+    "token_count": 325,
+    "report_type": "Deep_Research",
+    "date": "2026-03-13"
+  }
+]

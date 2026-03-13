@@ -5,6 +5,7 @@ import time
 import threading
 from ..prompts.deep_research_prompt import create_deep_research_prompt
 from ..prompts.daily_research_prompt import create_daily_prompt
+from ..prompts.fundamental_review_prompt import create_fundamental_review_prompt
 
 # -------------------------------------------------------------------
 # Groq free-tier model fallback list (ordered by quality).
@@ -71,6 +72,108 @@ def prompt_chatgpt(text: str, model: str = "gpt-4.1-mini") -> str:
 
     return content
 
+def prompt_openrouter(
+    text: str,
+    model: str = "stepfun/step-3.5-flash:free",
+    log_fn=print,
+    cancel_event: threading.Event | None = None,
+) -> str:
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "OPENROUTER_API_KEY environment variable not set. "
+            "Register at https://openrouter.ai/keys and set the key in Settings."
+        )
+
+    if cancel_event and cancel_event.is_set():
+        raise InterruptedError("Backtest abgebrochen")
+
+    client = OpenAI(
+        api_key=api_key,
+        base_url="https://openrouter.ai/api/v1",
+        default_headers={
+            "HTTP-Referer": "https://github.com/LLM-Investor-Behavior-Benchmark",
+            "X-Title": "LLM-IBB",
+        },
+    )
+
+    log_fn(f"  → OpenRouter [{model}] wird aufgerufen …")
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": text}],
+            temperature=0.0,
+        )
+    except Exception as e:
+        raise RuntimeError(f"OpenRouter API error: {e}") from e
+
+    if not response.choices:
+        raise RuntimeError("No choices returned from OpenRouter.")
+
+    content = response.choices[0].message.content
+    if content is None:
+        raise RuntimeError("Output from OpenRouter was None.")
+
+    log_fn(f"  ✓ OpenRouter [{model}] Antwort erhalten.")
+    return content
+
+
+def prompt_gemini(
+    text: str,
+    model: str = "gemini-3.1-flash-lite-preview",
+    log_fn=print,
+    cancel_event: threading.Event | None = None,
+) -> str:
+    """
+    Send a prompt to Google AI Studio via its OpenAI-compatible REST endpoint.
+
+    Free-tier limits for Gemini 3.1 Flash Lite (as of 2026-03):
+        15 RPM  |  250 000 TPM  |  500 RPD
+    API key:  https://aistudio.google.com/apikey
+    """
+    api_key = os.environ.get("GOOGLE_AI_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "GOOGLE_AI_API_KEY environment variable not set. "
+            "Kostenlosen API-Key unter https://aistudio.google.com/apikey erstellen "
+            "und in den Einstellungen eintragen."
+        )
+
+    if cancel_event and cancel_event.is_set():
+        raise InterruptedError("Backtest abgebrochen")
+
+    client = OpenAI(
+        api_key=api_key,
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+    )
+
+    log_fn(f"  → Google AI Studio [{model}] wird aufgerufen …")
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": text}],
+            temperature=0.0,
+        )
+    except Exception as e:
+        error_str = str(e)
+        if "429" in error_str or "quota" in error_str.lower() or "rate" in error_str.lower():
+            raise RuntimeError(
+                f"Google AI Studio Rate-Limit / Tages-Quota erschöpft: {e}. "
+                "Quota-Übersicht: https://aistudio.google.com/plan_information"
+            ) from e
+        raise RuntimeError(f"Google AI Studio API error: {e}") from e
+
+    if not response.choices:
+        raise RuntimeError("No choices returned from Google AI Studio.")
+
+    content = response.choices[0].message.content
+    if content is None:
+        raise RuntimeError("Output from Google AI Studio was None.")
+
+    log_fn(f"  ✓ Google AI Studio [{model}] Antwort erhalten.")
+    return content
+
+
 def prompt_deep_research(libb, log_fn=print, cancel_event: threading.Event | None = None) -> str:
     model = libb._model_path.replace("user_side/runs/run_v1/", "")
     text = create_deep_research_prompt(libb)
@@ -78,6 +181,10 @@ def prompt_deep_research(libb, log_fn=print, cancel_event: threading.Event | Non
         return prompt_deepseek(text)
     elif model == "gpt-4.1":
         return prompt_chatgpt(text)
+    elif model == "openrouter":
+        return prompt_openrouter(text, log_fn=log_fn, cancel_event=cancel_event)
+    elif model == "gemini":
+        return prompt_gemini(text, log_fn=log_fn, cancel_event=cancel_event)
     else:
         return prompt_free_model(text, log_fn=log_fn, cancel_event=cancel_event)
 
@@ -88,6 +195,26 @@ def prompt_daily_report(libb, log_fn=print, cancel_event: threading.Event | None
         return prompt_deepseek(text)
     elif model == "gpt-4.1":
         return prompt_chatgpt(text)
+    elif model == "openrouter":
+        return prompt_openrouter(text, log_fn=log_fn, cancel_event=cancel_event)
+    elif model == "gemini":
+        return prompt_gemini(text, log_fn=log_fn, cancel_event=cancel_event)
+    else:
+        return prompt_free_model(text, log_fn=log_fn, cancel_event=cancel_event)
+
+
+def prompt_fundamental_review(libb, log_fn=print, cancel_event: threading.Event | None = None) -> str:
+    """Saturday fundamental review – no orders, pure company & strategy analysis."""
+    model = libb._model_path.replace("user_side/runs/run_v1/", "")
+    text = create_fundamental_review_prompt(libb)
+    if model == "deepseek":
+        return prompt_deepseek(text)
+    elif model == "gpt-4.1":
+        return prompt_chatgpt(text)
+    elif model == "openrouter":
+        return prompt_openrouter(text, log_fn=log_fn, cancel_event=cancel_event)
+    elif model == "gemini":
+        return prompt_gemini(text, log_fn=log_fn, cancel_event=cancel_event)
     else:
         return prompt_free_model(text, log_fn=log_fn, cancel_event=cancel_event)
 

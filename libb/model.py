@@ -69,6 +69,7 @@ class LIBBmodel:
         self.filled_orders: int = 0
         self.failed_orders: int = 0
         self.skipped_orders: int = 0
+        self.unavailable_tickers: list[str] = []
 
         self.STARTUP_DISK_SNAPSHOT: ModelSnapshot | None = self.reader.save_disk_snapshot()
         self._instance_is_valid: bool = True
@@ -223,6 +224,7 @@ class LIBBmodel:
         self.pending_trades = processing.processing(self.pending_trades)
 
         self.filled_orders, self.failed_orders, self.skipped_orders = processing.get_order_status_count()
+        self.unavailable_tickers = processing.get_unavailable_tickers()
         self.portfolio = processing.get_portfolio()
         self.cash = processing.get_cash()
                 
@@ -230,7 +232,7 @@ class LIBBmodel:
         self.save_orders(self.pending_trades)
 
 
-    def process_portfolio(self) -> None:
+    def process_portfolio(self, slot: str = "") -> None:
         "Wrapper for all portfolio processing."
         ""
         today = pd.Timestamp.now().date()
@@ -245,26 +247,25 @@ class LIBBmodel:
                 raise RuntimeError("LIBBmodel instance is invalid after failure; create a new instance to avoid divergence from state.")
         
         if not self.portfolio_history.empty:
-            if str(self.run_date) in self.portfolio_history["date"]:
-                self._instance_is_valid = False
-                raise RuntimeError(
-                    f"Portfolio snapshot for {self.run_date} already exists. "
-                    "Refusing to overwrite historical ledger.")
-        
+            # FIX: .any() prüft die Werte, nicht den pandas-Series-Index
+            if (self.portfolio_history["date"] == str(self.run_date)).any():
+                print(f"[SKIP] process_portfolio: {self.run_date} bereits in portfolio_history – wird übersprungen.")
+                return
+
             last_run_date = pd.to_datetime(self.portfolio_history["date"]).max().date()
-      
-            if self.run_date <= last_run_date:
+
+            if self.run_date < last_run_date:
                 raise RuntimeError(
-                    f"Backjump Error: Current run_date ({self.run_date}) is on or before "
-                    f"the last recorded date ({last_run_date}). Dates must move forward."
+                    f"Backjump Error: run_date ({self.run_date}) liegt vor dem letzten "
+                    f"gespeicherten Datum ({last_run_date}). Daten müssen vorwärts laufen."
                 )
 
         if is_market_open(self.run_date, self.market_calendar):
             try:
                 self._process()
-                self._save_new_logging_file()
+                self._save_new_logging_file(slot=slot)
             except Exception as e:
-                self._save_new_logging_file(status="FAILURE", error=e)
+                self._save_new_logging_file(status="FAILURE", error=e, slot=slot)
                 self._instance_is_valid = False
                 if self.STARTUP_DISK_SNAPSHOT is None:
                     raise RuntimeError("No startup disk snapshot available for rollback; disk may be corrupted.")
@@ -272,18 +273,18 @@ class LIBBmodel:
                     self.writer._load_snapshot_to_disk(self.STARTUP_DISK_SNAPSHOT)
                 raise SystemError("Processing failed: disk state has been reset to snapshot created on startup.") from e
         else:
-            self._save_new_logging_file(status="SKIPPED", error=f"{self.market_calendar} closed on run date")
+            self._save_new_logging_file(status="SKIPPED", error=f"{self.market_calendar} closed on run date", slot=slot)
 
 # ----------------------------------
 # Disk Writing
 # ----------------------------------
 
 
-    def save_deep_research(self, txt: str) -> Path:
-        return self.writer.save_deep_research(txt)
-    
-    def save_daily_update(self, txt: str) -> Path:
-        return self.writer.save_daily_update(txt)
+    def save_deep_research(self, txt: str, slot: str = "") -> Path:
+        return self.writer.save_deep_research(txt, slot=slot)
+
+    def save_daily_update(self, txt: str, slot: str = "") -> Path:
+        return self.writer.save_daily_update(txt, slot=slot)
     
     def save_orders(self, json_block: dict) -> None:
         self.writer.save_orders(json_block)
@@ -296,7 +297,7 @@ class LIBBmodel:
 # Logging
 # ----------------------------------
 
-    def _create_log_dict(self, status: str, error: Exception | str) -> Log:
+    def _create_log_dict(self, status: str, error: Exception | str, slot: str = "") -> Log:
 
 
         portfolio_equity = self.portfolio["market_value"].fillna(0).sum() + self.cash
@@ -334,13 +335,14 @@ class LIBBmodel:
             orders_skipped=self.skipped_orders,
             portfolio_value=portfolio_equity,
             error=str(error),
+            slot=slot,
                 )
 
 
         return log 
     
-    def _save_new_logging_file(self, status: str = "SUCCESS", error: Exception | str = "none"):
-        log = self._create_log_dict(status, error)
+    def _save_new_logging_file(self, status: str = "SUCCESS", error: Exception | str = "none", slot: str = ""):
+        log = self._create_log_dict(status, error, slot=slot)
         self.writer._save_logging_file_to_disk(log)
 
 # ----------------------------------

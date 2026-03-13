@@ -3,13 +3,16 @@ LLM-IBB Dashboard
 Run: py dashboard.py  ->  http://0.0.0.0:5000
 Accessible from any device in the network (e.g. Armbian server).
 """
-import json, csv, threading
+import json, csv, logging, math, threading
 from collections import deque
 from datetime import datetime
 from pathlib import Path
 from flask import Flask, jsonify, render_template, abort, request
 from libb.other.key_store import get_masked_keys, set_key, delete_key
 from user_side.prompt_orchestration.get_prompt_data import resolve_ticker_names
+
+# Werkzeug-Access-Log auf Fehler/Warnungen beschränken (keine GET /api/... 200-Zeilen)
+logging.getLogger("werkzeug").setLevel(logging.WARNING)
 app = Flask(__name__)
 RUNS_BASE = Path("user_side/runs/run_v1")
 
@@ -25,12 +28,34 @@ _backtest_error: str | None = None
 _backtest_log: deque = deque(maxlen=500)
 _backtest_cancel = threading.Event()
 
+# background workflow log
+_workflow_log: deque = deque(maxlen=500)
+
 
 def append_backtest_log(msg: str) -> None:
     """Thread-safe: timestamped log line in den Puffer schreiben."""
     ts = datetime.now().strftime("%H:%M:%S")
     _backtest_log.append(f"[{ts}] {msg}")
     print(msg)  # weiterhin auch auf dem Server sichtbar
+
+
+def append_workflow_log(msg: str) -> None:
+    """Thread-safe: timestamped log line in den Workflow-Puffer schreiben."""
+    ts = datetime.now().strftime("%H:%M:%S")
+    _workflow_log.append(f"[{ts}] {msg}")
+    print(msg)
+def _sanitize_floats(obj):
+    """Replace NaN/Inf float values with None (JSON null) recursively.
+    Python's json module emits non-standard NaN/Infinity literals that
+    browsers cannot parse – this ensures strictly valid JSON."""
+    if isinstance(obj, float):
+        return None if (math.isnan(obj) or math.isinf(obj)) else obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_floats(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_floats(v) for v in obj]
+    return obj
+
 def get_runs():
     if not RUNS_BASE.exists():
         return []
@@ -44,12 +69,22 @@ def read_json(path):
     if not path.exists():
         return {}
     with open(path, encoding="utf-8") as f:
-        return json.load(f)
+        return _sanitize_floats(json.load(f))
 def read_csv(path):
     if not path.exists():
         return []
     with open(path, newline="", encoding="utf-8") as f:
         return list(csv.DictReader(f))
+
+def dedup_history_by_date(rows: list[dict]) -> list[dict]:
+    """Dedupliziert portfolio_history auf einen Eintrag pro Tag (letzter Eintrag gewinnt).
+    Gibt die Ergebnisse chronologisch sortiert zurück."""
+    seen: dict[str, dict] = {}
+    for row in rows:
+        d = row.get("date", "")
+        if d:
+            seen[d] = row          # späterer Eintrag überschreibt früheren
+    return sorted(seen.values(), key=lambda r: r.get("date", ""))
 def overview_for(run):
     p         = RUNS_BASE / run
     cash_data = read_json(p / "portfolio" / "cash.json")
@@ -70,10 +105,21 @@ def overview_for(run):
         files = sorted(logs_dir.glob("*.json"), reverse=True)
         if files:
             last_log = read_json(files[0])
+    # Sum unrealized PnL across all open positions
+    positions = read_csv(p / "portfolio" / "portfolio.csv")
+    total_unrealized_pnl = 0.0
+    for pos in positions:
+        v = pos.get("unrealized_pnl")
+        if v not in (None, "", "None"):
+            try:
+                total_unrealized_pnl += float(v)
+            except (ValueError, TypeError):
+                pass
     return {
         "run": run, "equity": equity, "cash": cash,
         "total_return_pct": total_return, "daily_return_pct": daily_return,
-        "positions_count": len(read_csv(p / "portfolio" / "portfolio.csv")),
+        "positions_count": len(positions),
+        "total_unrealized_pnl": total_unrealized_pnl,
         "trades_count":    len(read_csv(p / "portfolio" / "trade_log.csv")),
         "last_log": last_log,
     }
@@ -86,14 +132,16 @@ def api_runs():
 @app.route("/api/compare")
 def api_compare():
     return jsonify({r: {"overview": overview_for(r),
-                        "history": read_csv(RUNS_BASE / r / "portfolio" / "portfolio_history.csv")}
+                        "history": dedup_history_by_date(
+                            read_csv(RUNS_BASE / r / "portfolio" / "portfolio_history.csv"))}
                     for r in get_runs()})
 @app.route("/api/<run>/overview")
 def api_overview(run):
     return jsonify(overview_for(run))
 @app.route("/api/<run>/history")
 def api_history(run):
-    return jsonify(read_csv(run_dir(run) / "portfolio" / "portfolio_history.csv"))
+    return jsonify(dedup_history_by_date(
+        read_csv(run_dir(run) / "portfolio" / "portfolio_history.csv")))
 @app.route("/api/<run>/positions")
 def api_positions(run):
     return jsonify(read_csv(run_dir(run) / "portfolio" / "portfolio.csv"))
@@ -117,8 +165,16 @@ def api_reports(run):
     for folder in ["daily_reports", "deep_research"]:
         d = p / "research" / folder
         if d.exists():
-            for f in sorted(d.glob("*.txt"), reverse=True):
+            for f in d.glob("*.txt"):
                 out.append({"name": f.name, "type": folder})
+    # Datum aus Dateiname extrahieren (Format: "xxx - YYYY-MM-DD - slot.txt")
+    # und global absteigend sortieren → neueste zuerst
+    def _sort_key(entry):
+        parts = entry["name"].split(" - ")
+        date_str = parts[1] if len(parts) >= 2 else ""
+        slot_str = parts[2].replace(".txt", "") if len(parts) >= 3 else ""
+        return (date_str, slot_str)
+    out.sort(key=_sort_key, reverse=True)
     return jsonify(out)
 @app.route("/api/<run>/report")
 def api_report_content(run):
@@ -162,15 +218,16 @@ def api_run_workflow():
             return jsonify({"ok": False, "message": "Workflow is already running"}), 409
         _workflow_running = True
         _workflow_error = None
+        _workflow_log.clear()
 
     def _run():
         global _workflow_running, _workflow_error
         try:
             from user_side.workflow import main
-            main()
+            main(log_fn=append_workflow_log)
         except Exception as e:
             _workflow_error = str(e)
-            print(f"[Workflow] Error: {e}")
+            append_workflow_log(f"[FEHLER] {e}")
         finally:
             _workflow_running = False
 
@@ -233,6 +290,60 @@ def api_backtest_status():
 @app.route("/api/backtest-log")
 def api_backtest_log():
     return jsonify({"lines": list(_backtest_log)})
+
+@app.route("/api/workflow-log")
+def api_workflow_log():
+    return jsonify({"lines": list(_workflow_log)})
+
+@app.route("/api/next-runs")
+def api_next_runs():
+    """Return the next 5 scheduled workflow run times (local time).
+
+    Weekdays (Mo–Fr): 09:00 morning | 16:00 midday | 18:00 evening | 22:00 night (Deep Research)
+    Saturday        : 10:00 weekend (Fundamental Review)
+    Sunday          : no runs
+    """
+    from datetime import timedelta
+
+    WEEKDAY_SCHEDULE = [
+        ("09:00", "morning"),
+        ("12:00", "noon"),
+        ("16:00", "midday"),
+        ("18:00", "evening"),
+        ("22:00", "night"),
+    ]
+    SATURDAY_SCHEDULE = [("10:00", "weekend")]
+    MAX_RESULTS = 5
+
+    now = datetime.now()
+    result = []
+
+    for day_offset in range(10):
+        candidate = now + timedelta(days=day_offset)
+        weekday = candidate.weekday()
+
+        if weekday == 6:          # Sunday – skip entirely
+            continue
+        elif weekday == 5:        # Saturday – fundamental review only
+            day_schedule = SATURDAY_SCHEDULE
+        else:                     # Mon–Fri – all trading + nightly slots
+            day_schedule = WEEKDAY_SCHEDULE
+
+        for time_str, slot_name in day_schedule:
+            h, m = map(int, time_str.split(":"))
+            scheduled = candidate.replace(hour=h, minute=m, second=0, microsecond=0)
+            if scheduled > now:
+                result.append({
+                    "datetime": scheduled.strftime("%Y-%m-%d %H:%M"),
+                    "slot": slot_name,
+                    "weekday": scheduled.strftime("%A"),
+                })
+            if len(result) >= MAX_RESULTS:
+                break
+        if len(result) >= MAX_RESULTS:
+            break
+
+    return jsonify(result)
 
 @app.route("/api/cancel-backtest", methods=["POST"])
 def api_cancel_backtest():
@@ -299,6 +410,18 @@ def api_settings_delete_key(name):
 
 
 if __name__ == "__main__":
+    # Fehlende Run-Verzeichnisse für alle konfigurierten Modelle anlegen
+    try:
+        from user_side.workflow import MODELS
+        from libb import LIBBmodel
+        for model in MODELS:
+            run_path = RUNS_BASE / model
+            if not run_path.exists():
+                LIBBmodel(str(run_path))
+                print(f"[Bootstrap] Run-Verzeichnis für '{model}' erstellt.")
+    except Exception as exc:
+        print(f"[Bootstrap] Warnung: {exc}")
+
     print("LLM-IBB Dashboard -> http://0.0.0.0:5000")
     # host=0.0.0.0 makes the server reachable from other devices (e.g. Armbian)
     app.run(host="0.0.0.0", port=5000, debug=False)

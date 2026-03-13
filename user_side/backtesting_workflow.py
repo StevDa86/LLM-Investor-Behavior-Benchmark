@@ -10,21 +10,20 @@ import threading
 import time
 from pathlib import Path
 
-MODELS = ["groq"]
+MODELS = ["groq", "openrouter", "gemini"]
 
 # Wie viele Tage historische Daten für Backtests geladen werden.
 HISTORY_WINDOW_DAYS = 14
 
 def weekly_flow(date):
-
     for model in MODELS:
         libb = LIBBmodel(f"user_side/runs/run_v1/{model}", run_date=date)
         libb.process_portfolio()
-        
+
         deep_research_report = prompt_deep_research(libb)
 
         libb.analyze_sentiment(deep_research_report, report_type="Deep_Research")
-        libb.save_deep_research(deep_research_report)
+        libb.save_deep_research(deep_research_report, slot="backtest")
 
         orders_json = parse_json(deep_research_report, "ORDERS_JSON")
 
@@ -39,7 +38,7 @@ def daily_flow(date):
         daily_report = prompt_daily_report(libb)
 
         libb.analyze_sentiment(daily_report, report_type="Daily")
-        libb.save_daily_update(daily_report)
+        libb.save_daily_update(daily_report, slot="backtest")
 
         orders_json = parse_json(daily_report, "ORDERS_JSON")
 
@@ -90,9 +89,9 @@ def _prompt_with_retry(
 
     # ── Cache-Check ──────────────────────────────────────────────────────────
     if weekday == 4:
-        cached_path = run_path / "research" / "deep_research" / f"deep_research - {libb.run_date}.txt"
+        cached_path = run_path / "research" / "deep_research" / f"deep_research - {libb.run_date} - backtest.txt"
     else:
-        cached_path = run_path / "research" / "daily_reports" / f"daily_update - {libb.run_date}.txt"
+        cached_path = run_path / "research" / "daily_reports" / f"daily_update - {libb.run_date} - backtest.txt"
 
     if cached_path.exists():
         log_fn(f"  [CACHED] Report für {libb.run_date} gefunden – LLM-Aufruf übersprungen.")
@@ -118,9 +117,9 @@ def _prompt_with_retry(
 
             # Persist the report text
             if weekday == 4:
-                libb.save_deep_research(report)
+                libb.save_deep_research(report, slot="backtest")
             else:
-                libb.save_daily_update(report)
+                libb.save_daily_update(report, slot="backtest")
 
             libb.analyze_sentiment(report, report_type="Deep_Research" if weekday == 4 else "Daily")
             return orders_json

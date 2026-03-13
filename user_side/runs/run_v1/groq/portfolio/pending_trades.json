@@ -1,1 +1,64 @@
-{"orders": []}
+{
+  "orders": [
+    {
+      "action": "b",
+      "ticker": "PLUG",
+      "shares": 13,
+      "order_type": "LIMIT",
+      "limit_price": 2.21,
+      "time_in_force": "DAY",
+      "date": "2026-03-14",
+      "stop_loss": 1.8,
+      "rationale": "Growth potential in renewable energy",
+      "confidence": 0.8
+    },
+    {
+      "action": "b",
+      "ticker": "ABEV",
+      "shares": 10,
+      "order_type": "LIMIT",
+      "limit_price": 2.87,
+      "time_in_force": "DAY",
+      "date": "2026-03-14",
+      "stop_loss": 2.3,
+      "rationale": "Stable consumer goods company",
+      "confidence": 0.75
+    },
+    {
+      "action": "b",
+      "ticker": "SNAP",
+      "shares": 8,
+      "order_type": "LIMIT",
+      "limit_price": 4.65,
+      "time_in_force": "DAY",
+      "date": "2026-03-14",
+      "stop_loss": 3.7,
+      "rationale": "Growth in social media advertising",
+      "confidence": 0.7
+    },
+    {
+      "action": "b",
+      "ticker": "NIO",
+      "shares": 7,
+      "order_type": "LIMIT",
+      "limit_price": 5.55,
+      "time_in_force": "DAY",
+      "date": "2026-03-14",
+      "stop_loss": 4.4,
+      "rationale": "Electric vehicle growth potential",
+      "confidence": 0.8
+    },
+    {
+      "action": "b",
+      "ticker": "TLRY",
+      "shares": 6,
+      "order_type": "LIMIT",
+      "limit_price": 6.95,
+      "time_in_force": "DAY",
+      "date": "2026-03-14",
+      "stop_loss": 5.5,
+      "rationale": "Speculative growth in cannabis sector",
+      "confidence": 0.65
+    }
+  ]
+}

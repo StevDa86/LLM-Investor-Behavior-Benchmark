@@ -118,8 +118,8 @@ _CANDIDATE_UNIVERSE: list[str] = [
     "SDF.DE",     # K+S AG
     # ── Euronext Paris (EUR) ──
     "TEF.MC",     # Telefonica (Madrid)
-    "SES.PA",     # SES SA
-    "CGG.PA",     # CGG SA
+    # CGG.PA  → delisted / no market data
+    # SES.PA  → delisted / no market data
     # ── Milan (EUR) ──
     "ENEL.MI",    # Enel
     "TIT.MI",     # Telecom Italia
@@ -143,7 +143,7 @@ _CANDIDATE_UNIVERSE: list[str] = [
     "MARA",       # Marathon Digital
     "SOFI",       # SoFi Technologies
     "TLRY",       # Tilray Brands
-    "NKLA",       # Nikola
+    # NKLA   → delisted / no price data
     "BCRX",       # BioCryst Pharmaceuticals
 ]
 
