@@ -498,6 +498,32 @@
 
     <!-- ══════════════ TRADES ═══════════════════════════════════════════════ -->
     <section id="page-trades" class="page">
+
+      <!-- Pending Orders -->
+      <div id="pendingOrdersCard" class="card mb-4 hidden">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <i class="fas fa-clock-rotate-left text-yellow-400 text-xs"></i>
+            <h2 class="text-sm font-semibold text-gray-200">Pending Orders</h2>
+            <span id="pendingBadge"
+                  class="bg-yellow-500/15 border border-yellow-500/30 text-yellow-400
+                         text-[11px] font-semibold px-2 py-0.5 rounded-full"></span>
+          </div>
+          <span class="text-[11px] text-gray-500 italic">Queued – werden am angegebenen Datum ausgeführt</span>
+        </div>
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Exec. Date</th><th>Ticker / Company</th><th>Action</th><th>Type</th>
+                <th>Shares</th><th>Limit Price</th><th>Stop Loss</th><th>Conf.</th><th>Rationale</th>
+              </tr>
+            </thead>
+            <tbody id="pendingBody"></tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="card">
         <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h2 class="text-sm font-semibold text-gray-200">Trade Log</h2>
@@ -1455,6 +1481,7 @@ function renderLastLog(log, nextRuns = []) {
   if (nextRuns && nextRuns.length) {
     const slotColor = {
       morning:  'text-blue-400',
+      noon:     'text-cyan-400',
       midday:   'text-yellow-400',
       evening:  'text-purple-400',
       night:    'text-indigo-300',
@@ -1566,6 +1593,38 @@ async function loadTrades() {
     document.getElementById('tradeFilter').onchange  = filterTrades;
     document.getElementById('statusFilter').onchange = filterTrades;
   } catch (e) { showError('Trades konnten nicht geladen werden', e.message); }
+  // Pending Orders laden
+  try {
+    const pending = await (await fetch(`/api/${currentRun}/pending-orders`)).json();
+    await fetchTickerNames(pending.map(r => r.ticker));
+    renderPendingOrders(pending);
+  } catch (_) {}
+}
+
+function renderPendingOrders(orders) {
+  const card    = document.getElementById('pendingOrdersCard');
+  const body    = document.getElementById('pendingBody');
+  const badgeEl = document.getElementById('pendingBadge');
+  if (!orders || !orders.length) { card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+  badgeEl.textContent = orders.length;
+  body.innerHTML = orders.map(o => {
+    const action = (o.action || '').toUpperCase();
+    const color  = action === 'S' ? 'red' : action === 'B' ? 'blue' : 'gray';
+    const label  = action === 'S' ? 'SELL' : action === 'B' ? 'BUY' : action;
+    const rat    = (o.rationale || '').length > 70 ? o.rationale.slice(0, 70) + '…' : (o.rationale || '–');
+    return `<tr>
+      <td class="text-yellow-400 font-medium">${o.date || '–'}</td>
+      <td>${tickerLabel(o.ticker)}</td>
+      <td>${badge(label, color)}</td>
+      <td class="text-gray-500 text-xs">${o.order_type || '–'}</td>
+      <td>${o.shares ?? '–'}</td>
+      <td>${o.limit_price != null ? fmtUsd(o.limit_price) : '–'}</td>
+      <td>${o.stop_loss != null && o.stop_loss !== 0 ? fmtUsd(o.stop_loss) : '–'}</td>
+      <td class="text-gray-400">${o.confidence != null ? (parseFloat(o.confidence) * 100).toFixed(0) + '%' : '–'}</td>
+      <td class="max-w-[260px] text-[11px] text-gray-400" title="${(o.rationale||'').replace(/"/g,'&quot;')}">${rat}</td>
+    </tr>`;
+  }).join('');
 }
 
 function filterTrades() {

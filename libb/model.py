@@ -287,7 +287,32 @@ class LIBBmodel:
         return self.writer.save_daily_update(txt, slot=slot)
     
     def save_orders(self, json_block: dict) -> None:
+        self.pending_trades = json_block
         self.writer.save_orders(json_block)
+
+    def merge_orders(self, new_orders_json: dict) -> None:
+        """Merge new orders with existing pending orders instead of replacing them.
+
+        New orders take priority for the same (ticker, action) pair so that a
+        later analysis can update a limit price or rationale.  Existing orders
+        for tickers/actions that are NOT covered by the new set are preserved.
+
+        This prevents a later workflow slot (e.g. nightly deep research) from
+        silently erasing pending orders that were placed by an earlier slot
+        (e.g. evening report) but haven't been executed yet because the market
+        was closed at the time.
+        """
+        existing = self.pending_trades if isinstance(self.pending_trades, dict) else {"orders": []}
+        existing_list: list[dict] = existing.get("orders", [])
+        new_list: list[dict] = new_orders_json.get("orders", []) if isinstance(new_orders_json, dict) else []
+
+        # New orders replace existing orders for the same (ticker, action) pair
+        new_keys = {(o.get("ticker"), o.get("action")) for o in new_list}
+        kept = [o for o in existing_list if (o.get("ticker"), o.get("action")) not in new_keys]
+        merged = {"orders": kept + new_list}
+
+        self.pending_trades = merged
+        self.writer.save_orders(merged)
 
     def save_additional_log(self, file_name: str, text: str, folder: str="additional_logs", append: bool=False) -> None:
         self.writer.save_additional_log(file_name, text, folder, append)

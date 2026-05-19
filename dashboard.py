@@ -148,6 +148,11 @@ def api_positions(run):
 @app.route("/api/<run>/trades")
 def api_trades(run):
     return jsonify(read_csv(run_dir(run) / "portfolio" / "trade_log.csv"))
+@app.route("/api/<run>/pending-orders")
+def api_pending_orders(run):
+    data = read_json(run_dir(run) / "portfolio" / "pending_trades.json")
+    orders = data.get("orders", []) if isinstance(data, dict) else []
+    return jsonify(orders)
 @app.route("/api/<run>/sentiment")
 def api_sentiment(run):
     data = read_json(run_dir(run) / "metrics" / "sentiment.json")
