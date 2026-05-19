@@ -19,7 +19,8 @@ BUDGET_FLOOR  = 0.30   # stop trading if portfolio value drops below 30% of star
 def _current_slot() -> str:
     """Determine the time slot based on the current local time.
 
-    Saturday      → 'weekend'
+    Saturday      → 'weekend' (Saturday-only fundamental slot)
+    Sunday        → hourly slot (workflow still skipped by main() weekend guard)
     before 12:00  → 'morning'
     12:00–12:59   → 'noon'
     13:00–15:59   → 'midday'

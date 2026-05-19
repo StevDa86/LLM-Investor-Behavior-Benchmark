@@ -177,9 +177,9 @@ def api_reports(run):
     # Datum aus Dateiname extrahieren (Format: "xxx - YYYY-MM-DD - slot.txt")
     # und global absteigend sortieren → neueste zuerst
     def _sort_key(entry):
-        parts = entry["name"].split(" - ")
-        date_str = parts[1].replace(".txt", "") if len(parts) >= 2 else ""
-        slot_str = parts[2].replace(".txt", "") if len(parts) >= 3 else ""
+        parts = entry["name"].removesuffix(".txt").split(" - ")
+        date_str = parts[1] if len(parts) >= 2 else ""
+        slot_str = parts[2] if len(parts) >= 3 else ""
         return (date_str, slot_str)
     out.sort(key=_sort_key, reverse=True)
     return jsonify(out)
