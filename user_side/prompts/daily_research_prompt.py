@@ -2,7 +2,7 @@ from libb.model import LIBBmodel
 from libb.execution.utils import next_trading_day
 from user_side.prompt_orchestration.get_prompt_data import get_market_candidates
 
-MAX_POSITIONS = 5
+MAX_POSITIONS = 7
 
 # -------------------------------------------------------------------
 # STATIC SECTIONS (portfolio-state-independent)
@@ -25,10 +25,12 @@ LOGS_SECTION = """
 """
 
 FAILED_ORDER_HANDLING = """
-## FAILED ORDER HANDLING
+## FAILED / REJECTED ORDER HANDLING
 Execution log may show: "limit not met", "insufficient cash",
-"MAX_POSITIONS_REACHED (5)". Do NOT overreact or revenge trade.
-Adjust only if clearly justified.
+"MAX_POSITIONS_REACHED (7)", or "MIN_HOLDING_PERIOD".
+Do NOT overreact or revenge trade. Adjust only if clearly justified.
+A REJECTED sell due to MIN_HOLDING_PERIOD means the engine refused the order —
+do NOT re-issue the same sell. Wait until the holding period has elapsed.
 """
 
 PRE_BUY_FUNDAMENTAL_RULE = """
@@ -50,8 +52,7 @@ A SELL order executes as long as you hold the shares — regardless of cash bala
 The {commission:.2f} EUR fee is deducted from the SALE PROCEEDS, NOT from your cash.
   • Sell proceeds added to cash = (shares × fill_price) − {commission:.2f} EUR
   • You NEVER need a cash reserve to sell a position.
-  • Low or zero cash is NOT a reason to hold a losing or stagnant position.
-→ Use SELL freely to free up capital. The fee pays itself from what you receive.
+→ Use SELL to free up capital when the fundamental thesis is broken or stop-loss is hit.
 """
 
 BUY_CASH_RULE = """
@@ -61,24 +62,42 @@ Never place a buy order if total cost exceeds available cash.
 Available cash for new buys = cash shown in the portfolio above.
 """
 
-TRADER_MINDSET = """
-## TRADER MINDSET — WEEKLY PROFIT FOCUS (MANDATORY)
-You are an ACTIVE STOCK TRADER. Your job is to grow this portfolio with real,
-measurable profit. Think like a professional trader who reviews results weekly.
+INVESTOR_MINDSET = """
+## INVESTOR MINDSET — THESIS-DRIVEN HOLDING (MANDATORY)
+You are a THOUGHTFUL STOCK INVESTOR. Your job is to grow this portfolio through
+sound, patient investing — not through constant activity.
 
 CORE PRINCIPLES:
-• PROFIT OR STAY OUT: Only buy when you have a clear, realistic profit thesis
-  after fees. "It might go up" is not a thesis. No conviction = no trade.
-• WEEKLY ACCOUNTABILITY: Every week ask: is each position making money or blocking
-  capital? A position that hasn't moved in a week deserves an exit review.
-• SELL TO REDEPLOY: Selling a flat or losing position to move capital into a better
-  opportunity IS good trading — not a failure. This is capital efficiency.
-• HOLD ONLY WITH REASON: Holding is justified only when price action is positive
-  OR a specific near-term catalyst is expected within days. Otherwise exit.
-• LOW CASH = SELL SIGNAL: If cash is low and a better opportunity exists, sell
-  the weakest position first. Sells cost nothing from cash — fee comes from proceeds.
-• LONGER HOLDS ARE OK — but only for positions showing clear upward momentum or
-  a confirmed near-term catalyst. Do not hold just to avoid booking a loss.
+• BUY WITH CONVICTION: Only buy when you have a clear fundamental thesis AND a
+  realistic price target. "It might go up" is not a thesis. No conviction = no trade.
+• HOLD WITH PATIENCE: Once in a position, hold it as long as the fundamental thesis
+  remains intact. Small price fluctuations (±5%) are NOISE — do not act on them.
+• MONTHLY REVIEW MINDSET: Ask monthly: has anything fundamentally changed for this
+  company? If not — hold your position and let it develop.
+• SELL ONLY WHEN THESIS BREAKS: Exit when:
+  – Stop-loss is triggered
+  – Unrealised loss exceeds 25% of cost basis
+  – The fundamental reason for buying no longer applies
+  – A materially better opportunity requires freeing capital (rare — justify clearly)
+• FEWER, BETTER TRADES: Every round-trip costs 2 × {commission:.2f} = {round_trip:.2f} EUR in fees.
+  A portfolio that trades rarely but well outperforms one that trades often and poorly.
+• QUALITY OVER ACTIVITY: Do not feel pressure to fill all open slots or place orders
+  daily. If nothing compelling exists, place NO orders.
+"""
+
+HOLDING_DISCIPLINE = """
+## HOLDING DISCIPLINE (ENGINE-ENFORCED — READ CAREFULLY)
+The execution engine REJECTS sell orders for positions held fewer than
+10 trading days, UNLESS:
+  • The unrealised loss exceeds 25% of cost basis, OR
+  • The stop-loss level was hit (auto-executed, not via a manual SELL order).
+
+WHAT THIS MEANS FOR YOU:
+• Do NOT place a SELL order for a position entered within the last 10 trading days
+  unless you have a ≥25% loss. It will be REJECTED and logged as a failed order.
+• Instead, manage risk through the stop-loss level — update it if needed (action: "u").
+• Count trading days carefully before issuing any sell order.
+• The 10-day minimum is designed to prevent fee-destroying rapid round-trips.
 """
 
 CONCENTRATION_RULE = """
@@ -90,33 +109,30 @@ TRADING_FEE_RULE = """
 ## TRADING FEE & PROFIT REQUIREMENT
 Every filled order costs {commission:.2f} EUR flat, deducted automatically.
 Factor this into position sizing. Minimum recommended trade: {min_trade:.2f} EUR
-(fee ≤ 5% of trade value).
+(fee ≤ 1% of trade value).
 
-**PROFIT GOAL — this is mandatory, not optional:**
-• The objective is to generate REAL PROFIT — not just activity.
-• A complete round-trip (1 buy + 1 sell) costs 2 × {commission:.2f} = {round_trip:.2f} EUR in fees alone.
+**PROFIT GOAL — mandatory:**
+• A complete round-trip (1 buy + 1 sell) costs 2 × {commission:.2f} = {round_trip:.2f} EUR in fees.
 • A trade is only worthwhile if:
-    (expected exit price − entry price) × shares  >  {round_trip:.2f} EUR  (round-trip fee)
-• Before placing a BUY, estimate a realistic exit target and verify:
-    expected profit after fees  >  0
-• Limit prices must be realistic — setting a limit far below the current price
-  almost guarantees the order will never fill (see: "limit price not met" failures).
-  A realistic limit is within 1–3% below the last closing price.
+    (expected exit price − entry price) × shares  >  {round_trip:.2f} EUR
+• Before placing a BUY, estimate a realistic exit target and verify net profit > 0.
+• Limit prices must be realistic — within 1–3% of the last closing price.
 """
 
 UNIVERSE_RULE = """
 ## UNIVERSE RULE
-• Only stocks priced ≤ 10 EUR (or local currency equivalent).
-• MAX 5 positions simultaneously. Engine-enforced.
-• NO new ticker while holding 5 — a slot opens only when a SELL is FILLED.
+• Only stocks priced ≤ 100 EUR (or local currency equivalent).
+• MAX 7 positions simultaneously. Engine-enforced.
+• NO new ticker while holding 7 — a slot opens only when a SELL is FILLED.
 • Ticker format (yfinance): US: plain | XETRA: TICKER.DE | London: TICKER.L
-  Amsterdam: TICKER.AS | Paris: TICKER.PA | Toronto: TICKER.TO
+  Amsterdam: TICKER.AS | Paris: TICKER.PA | Milan: TICKER.MI | Madrid: TICKER.MC
+  Helsinki: TICKER.HE
 • CRITICAL: Only use tickers that are actively traded with significant volume.
   Do NOT invent or guess ticker symbols.
 """
 
 MARKET_CANDIDATES_SECTION = """
-## VERIFIED MARKET CANDIDATES (≤ 10 EUR / USD as of today)
+## VERIFIED MARKET CANDIDATES (≤ 100 EUR / USD as of today)
 The following stocks from the candidate universe currently trade BELOW the
 price limit. You MUST pick from this list when opening new positions.
 Do NOT use any ticker NOT in this list unless it is already in your portfolio.
@@ -161,35 +177,37 @@ def _system_header(today, positions_count: int, free_slots: int, cash: float) ->
         situation = (
             f"Your portfolio is EMPTY. You have {cash:.2f} EUR and {free_slots} open slots.\n"
             "You MUST initiate at least 1 new buy position today. "
-            "Holding all-cash is NOT acceptable — deploy capital."
+            "Holding all-cash is NOT acceptable — deploy capital into a well-researched stock."
         )
     elif free_slots > 0:
-        if cash < 5.0:
+        if cash < 10.0:
             situation = (
                 f"You hold {positions_count} position(s) with {free_slots} open slot(s) "
-                f"but only {cash:.2f} EUR cash — not enough for a new buy.\n"
-                "ACTION REQUIRED: SELL your weakest or most stagnant position first to "
-                "generate cash, then redeploy into a better candidate.\n"
+                f"but only {cash:.2f} EUR cash — not enough for a meaningful new buy.\n"
+                "ACTION: Consider SELLING a position that has hit its stop-loss or where the "
+                "fundamental thesis is broken (and has been held ≥10 trading days) to free capital.\n"
                 "Remember: sell fees come from proceeds — you need ZERO cash to sell."
             )
         else:
             situation = (
                 f"You hold {positions_count} position(s) with {free_slots} open slot(s) "
                 f"and {cash:.2f} EUR available cash.\n"
-                "Manage existing positions AND actively seek new candidates to fill open slots. "
-                "Opening new positions is strongly encouraged when suitable stocks exist."
+                "Review existing positions. Consider opening new positions only if a strong "
+                "fundamental thesis exists. Do not buy just to fill slots."
             )
     else:
         situation = (
             f"Your portfolio is FULL ({MAX_POSITIONS}/{MAX_POSITIONS} positions). "
             f"Available cash: {cash:.2f} EUR.\n"
-            "Evaluate every holding: HOLD, ADD shares to existing position, TRIM, or EXIT."
+            "Evaluate every holding: is the fundamental thesis still intact?\n"
+            "Only exit a position if stop-loss is hit, loss > 25%, or thesis is broken.\n"
+            "Consider ADDing to existing high-conviction positions if cash permits."
         )
 
     return (
         f"## System\n"
-        f"You are an ACTIVE STOCK TRADER in DAILY Mode. Today is {today}.\n"
-        f"Your mission: grow this portfolio with real, measurable weekly profit.\n\n"
+        f"You are a PATIENT STOCK INVESTOR in DAILY Mode. Today is {today}.\n"
+        f"Your mission: grow this portfolio through thesis-driven, low-frequency investing.\n\n"
         f"{situation}\n\n"
         "NO NEWS MODE: base all decisions strictly on price action, stop-loss levels,\n"
         "fundamentals (from your own knowledge), and portfolio logic.\n"
@@ -198,40 +216,35 @@ def _system_header(today, positions_count: int, free_slots: int, cash: float) ->
 
 
 def _objectives(positions_count: int, free_slots: int, execution_date: str) -> str:
-    max_orders = min(free_slots + 2, 3) if free_slots > 0 else 2
-
     if positions_count == 0:
         return (
             "\n## DAILY OBJECTIVES\n"
-            "• You MUST place at least 1 buy order for a stock priced ≤ 10 EUR.\n"
-            "• Choose from any major exchange (XETRA, NYSE, NASDAQ, LSE, Euronext, etc.).\n"
+            "• You MUST place at least 1 buy order for a fundamentally sound stock ≤ 100 EUR.\n"
+            "• Choose from the VERIFIED MARKET CANDIDATES list below.\n"
             "• Set a stop-loss on every buy (typically 10–20% below entry price).\n"
             "• Full integer shares only. LIMIT orders preferred.\n"
-            f"• Execution_date for ALL orders: {execution_date}  ← use this exact date, no other.\n"
-            "• Allocate at least 20 EUR per position (keep fee impact below 5%).\n"
+            f"• Execution_date for ALL orders: {execution_date}  ← use this exact date.\n"
+            "• Allocate at least 100 EUR per position (keep fee impact below 1%).\n"
         )
     elif free_slots > 0:
         return (
             f"\n## DAILY OBJECTIVES\n"
-            f"• Existing positions: check stop-loss triggers, price action, unrealized PnL.\n"
-            f"  → For each: decide HOLD, ADD, TRIM, or EXIT.\n"
-            f"  → If a position is flat or losing with no clear catalyst → EXIT to free capital.\n"
-            f"• Open slots ({free_slots} available): actively evaluate new candidates ≤ 10 EUR.\n"
-            f"  → Initiate a new position if a suitable stock exists. Do not stay in cash unnecessarily.\n"
-            f"  → If cash is too low for a new buy: SELL the weakest position first, then buy.\n"
-            f"    (Sell fee is deducted from proceeds — no cash needed to execute a sell.)\n"
-            f"• Up to {max_orders} orders today (buys + sells combined). LIMIT DAY only.\n"
-            f"• Full integer shares. Stop-loss required on all new buys.\n"
-            f"• Execution_date for ALL orders: {execution_date}  ← use this exact date, no other.\n"
+            f"• Existing positions: verify stop-loss levels and fundamental thesis.\n"
+            f"  → HOLD unless: stop-loss hit, loss > 25%, or thesis fundamentally broken.\n"
+            f"  → Remember: sells are REJECTED if position held < 10 trading days (unless loss > 25%).\n"
+            f"• Open slots ({free_slots} available): open a new position ONLY if you have a strong thesis.\n"
+            f"  → Do not buy just to fill slots. Quality > quantity.\n"
+            f"• Max 2 orders today (buys + sells combined). LIMIT DAY only. Full integer shares.\n"
+            f"• Execution_date for ALL orders: {execution_date}  ← use this exact date.\n"
         )
     else:
         return (
             "\n## DAILY OBJECTIVES\n"
-            "• Portfolio is full — no new tickers until an existing position is sold.\n"
-            "• Check every position for stop-loss triggers and price action.\n"
-            "• Decide for each: HOLD, ADD shares (uses cash), TRIM, or EXIT.\n"
-            "• Up to 2 orders today. LIMIT DAY only. Full integer shares.\n"
-            f"• Execution_date for ALL orders: {execution_date}  ← use this exact date, no other.\n"
+            "• Portfolio is full — review each position's fundamental thesis.\n"
+            "• Only act if: stop-loss is hit, loss > 25%, or thesis is provably broken.\n"
+            "• If no action is warranted: place NO orders today.\n"
+            "• Max 1 sell order today if justified. LIMIT DAY only. Full integer shares.\n"
+            f"• Execution_date for ALL orders: {execution_date}  ← use this exact date.\n"
         )
 
 
@@ -249,7 +262,6 @@ def create_daily_prompt(libb: LIBBmodel) -> str:
     free_slots      = MAX_POSITIONS - positions_count
     cash            = libb.cash
 
-    # Compute the next open trading day for this run's market calendar
     execution_date = str(next_trading_day(today, libb.market_calendar))
 
     # Portfolio block
@@ -268,7 +280,6 @@ def create_daily_prompt(libb: LIBBmodel) -> str:
             + portfolio.to_string(index=False)
         )
 
-    # Warn about tickers with no current market data (possibly delisted)
     unavailable = getattr(libb, "unavailable_tickers", [])
     if unavailable:
         portfolio_text += (
@@ -278,18 +289,16 @@ def create_daily_prompt(libb: LIBBmodel) -> str:
             "→ Use a MARKET or low LIMIT order to ensure execution.\n"
         )
 
-    # Logs block
     logs_text = (
         logs.to_string(index=False)
         if not isinstance(logs, str) and not logs.empty
         else "No recent trade logs."
     )
 
-    min_trade_value = commission / 0.05 if commission > 0 else 0.0
+    min_trade_value = commission / 0.01 if commission > 0 else 0.0
 
-    # Candidates block – fetch live/historical prices for the universe
     already_held = list(portfolio["ticker"].str.upper()) if not portfolio.empty else []
-    candidates_text = get_market_candidates(today, price_limit=10.0, already_held=already_held)
+    candidates_text = get_market_candidates(today, price_limit=100.0, already_held=already_held)
 
     return (
         _system_header(today, positions_count, free_slots, cash)
@@ -298,8 +307,9 @@ def create_daily_prompt(libb: LIBBmodel) -> str:
         + LOGS_SECTION.format(logs_text=logs_text)
         + _objectives(positions_count, free_slots, execution_date)
         + FAILED_ORDER_HANDLING
+        + HOLDING_DISCIPLINE
         + PRE_BUY_FUNDAMENTAL_RULE
-        + TRADER_MINDSET
+        + INVESTOR_MINDSET
         + SELL_FEE_RULE.format(commission=commission)
         + BUY_CASH_RULE.format(commission=commission)
         + CONCENTRATION_RULE

@@ -11,7 +11,7 @@ You are a senior equity research analyst conducting a WEEKEND FUNDAMENTAL REVIEW
 Markets are closed. There is no time pressure and no orders will be placed today.
 Your sole task is to provide rigorous, independent fundamental analysis of every
 held position and every eligible watchlist candidate.
-This analysis will directly guide all trading decisions for the coming week.
+This analysis will directly guide all trading decisions for the coming weeks.
 Today is {today}.
 """
 
@@ -23,25 +23,34 @@ This is a pure research session — NOT a trading session.
   financials, business model, competitive landscape, sector dynamics.
 • Be brutally honest: if a holding is fundamentally weak, say so.
 • Your analysis must be actionable: each conclusion should tell the daily
-  trading system what to do with a position in the coming week.
+  trading system what to do with a position over the coming weeks.
 """
 
-TRADER_MINDSET = """
-## TRADER MINDSET — WEEKLY PROFIT FOCUS (MANDATORY)
-This portfolio is managed by an ACTIVE STOCK TRADER targeting weekly profit.
+INVESTOR_MINDSET = """
+## INVESTOR MINDSET — THESIS-DRIVEN HOLDING (MANDATORY)
+This portfolio is managed by a PATIENT STOCK INVESTOR targeting long-term capital growth.
 Every conclusion in this analysis must be judged through that lens.
 
 KEY EXPECTATIONS FOR THIS REVIEW:
-• For EVERY held position: explicitly answer "Can this position profit THIS WEEK?"
-  – YES with catalyst → recommend HOLD or ADD.
-  – NO clear near-term catalyst → recommend EXIT and capital redeployment.
-• SELL is always executable — sell fees come from proceeds, not from cash.
-  Never recommend holding a weak position to "avoid paying the fee".
-• For candidates: rank by likelihood of generating profit within 5 trading days.
-• Capital efficiency beats emotional attachment. A small booked loss now is
-  better than a larger unrealised loss next week.
-• Longer holds ARE valid — but only with strong fundamental justification AND
-  positive price momentum. Dead money must be freed.
+• For EVERY held position: explicitly answer "Is the fundamental thesis still intact?"
+  – YES: recommend HOLD or ADD — do not exit just because the stock hasn't moved.
+  – NO (thesis broken): recommend EXIT with clear justification.
+• The engine enforces a 10-trading-day minimum hold period.
+  Do NOT recommend selling any position held less than 10 trading days unless
+  unrealised loss > 25% or the thesis is conclusively broken.
+• Think in months, not days. Short-term price noise is irrelevant for fundamental analysis.
+• For candidates: rank by fundamental quality and long-term potential — not
+  by short-term price movement.
+• A position that holds steady and preserves capital is better than rapid churning.
+  Every round-trip costs fees. Fewer, better trades win.
+"""
+
+HOLDING_DISCIPLINE = """
+## HOLDING DISCIPLINE (ENGINE-ENFORCED)
+The execution engine REJECTS sell orders for positions held fewer than
+10 trading days, UNLESS unrealised loss > 25% or stop-loss was triggered.
+Do NOT recommend exits for recently entered positions unless one of these
+exceptions clearly applies. Instead, recommend monitoring or stop-loss adjustment.
 """
 
 FUNDAMENTAL_REQUIREMENTS = """
@@ -65,7 +74,7 @@ For EVERY held position AND every watchlist candidate, cover all 6 areas:
    • Is the moat widening, stable, or eroding?
 
 4. GROWTH CATALYSTS
-   • Near-term catalysts (< 3 months): product launches, earnings, partnerships
+   • Near-term catalysts (< 3 months): earnings, partnerships, product launches
    • Medium-term catalysts (3–12 months): market expansion, restructuring, sector tailwinds
    • Long-term thesis: why should this company be worth more in 2–3 years?
 
@@ -79,34 +88,34 @@ For EVERY held position AND every watchlist candidate, cover all 6 areas:
 """
 
 STRATEGY_SECTION = """
-## WEEKLY STRATEGY PLAN
+## MONTHLY STRATEGY PLAN
 After completing the fundamental analysis, provide a structured strategy plan:
 
 ### PORTFOLIO HEALTH SUMMARY
 • Overall portfolio conviction (0.0–1.0) with justification
-• Weakest holding: which position is most at risk and why?
+• Weakest holding: which position has the most fragile thesis and why?
 • Strongest holding: which position has the best fundamental outlook?
 • Cash allocation comment: is the current cash level appropriate?
 
 ### WATCHLIST PRIORITY RANKING
-Rank the eligible candidates (≤ 10 EUR) from most to least attractive.
+Rank the eligible candidates (≤ 100 EUR) from most to least attractive.
 For each: company name, ticker, 2-sentence buy thesis, key risk.
-Maximum 5 ranked candidates.
+Maximum 7 ranked candidates.
 
-### WEEKLY PROFIT ASSESSMENT (MANDATORY)
+### POSITION REVIEW (THESIS-BASED — MANDATORY)
 For EACH held position answer explicitly:
-• Likely to profit THIS WEEK? YES / NO / UNCERTAIN
-• If NO or UNCERTAIN: recommend EXIT (with suggested limit price) OR justify HOLD with
-  a specific catalyst expected within 5 trading days.
-• Reminder: selling costs nothing from cash — fee is deducted from proceeds.
-  Never hold a weak position just to avoid the sell fee.
+• Is the fundamental thesis still intact? YES / NO / UNCERTAIN
+• If NO or UNCERTAIN: recommend EXIT ONLY if held ≥ 10 trading days AND
+  justified by fundamental breakdown. Otherwise, recommend monitoring.
+• If YES: recommend HOLD or ADD with target price and time horizon.
+• Reminder: the 10-day engine rule cannot be bypassed — plan accordingly.
 
-### POSITIONS TO WATCH CLOSELY NEXT WEEK
-• Any position that should be sold on the next price weakness (with trigger price)?
-• Any position that deserves adding on the next price dip (with target entry zone)?
-• Any stop-loss levels that should be reviewed or tightened?
+### POSITIONS TO WATCH CLOSELY NEXT MONTH
+• Any position where stop-loss should be adjusted (with suggested new level)?
+• Any position worth adding to on a price dip (with target entry zone)?
+• Any position where the thesis is weakening but not yet broken?
 
-### COMING WEEK OUTLOOK
+### COMING WEEKS OUTLOOK
 • Overall market environment (inferred from fundamentals + macro knowledge)
 • Key company-specific events to monitor for held positions
 • Any sector rotation signals visible in the candidate universe?
@@ -117,20 +126,21 @@ CONTEXT_BLOCK = """
 ### Current Portfolio State
 {portfolio}
 
-### Recent Execution Log (last 4 weeks, including failed orders)
+### Recent Execution Log (last 4 weeks, including failed/rejected orders)
 {execution_log}
 
 ### Account Overview
 • Available cash : {cash:.2f} EUR
 • Trading fee    : {commission:.2f} EUR per filled order (round-trip cost: {round_trip:.2f} EUR)
+• MAX positions  : 7
+• Min hold period: 10 trading days (engine-enforced)
 """
 
 CANDIDATE_SECTION = """
-## ELIGIBLE MARKET CANDIDATES (≤ 10 EUR / USD as of today)
+## ELIGIBLE MARKET CANDIDATES (≤ 100 EUR / USD as of today)
 The following stocks from the candidate universe currently trade below the price limit.
-Analyse fundamentals for EVERY ticker listed — this is your research universe for the
-coming week. You are not limited to this list for analysis depth, but only these tickers
-are eligible for new buys next week.
+Analyse fundamentals for EVERY ticker listed — this is your research universe.
+Only these tickers are eligible for new buys in the coming weeks.
 
 {candidates}
 """
@@ -144,11 +154,11 @@ Produce exactly three tagged blocks — no other text outside these blocks:
 [Full 6-area analysis for each held position]
 
 ### WATCHLIST CANDIDATES
-[Full 6-area analysis for each candidate ≤ 10 EUR]
+[Full 6-area analysis for each candidate ≤ 100 EUR]
 </FUNDAMENTAL_ANALYSIS>
 
 <WATCHLIST_RECOMMENDATION>
-[Complete weekly strategy plan as specified in WEEKLY STRATEGY PLAN above]
+[Complete monthly strategy plan as specified in MONTHLY STRATEGY PLAN above]
 </WATCHLIST_RECOMMENDATION>
 
 <CONFIDENCE_LVL>
@@ -167,13 +177,12 @@ def create_fundamental_review_prompt(libb: LIBBmodel) -> str:
     commission = libb.commission
     cash = libb.cash
 
-    # Portfolio block
     if portfolio.empty:
         portfolio_text = (
             f"  No active positions.\n"
             f"  Available cash: {cash:.2f} EUR\n"
             f"  This is a FRESH portfolio — focus your analysis on the best candidates\n"
-            f"  to initiate next week. Rank your top 5 picks with full justification."
+            f"  to initiate in the coming week. Rank your top 7 picks with full justification."
         )
     else:
         unavailable = getattr(libb, "unavailable_tickers", [])
@@ -185,7 +194,6 @@ def create_fundamental_review_prompt(libb: LIBBmodel) -> str:
                 "  → Include EXIT recommendation for each delisted position.\n"
             )
 
-    # Execution log
     execution_log = libb.recent_execution_logs()
     execution_log_text = (
         execution_log.to_string(index=False)
@@ -193,14 +201,14 @@ def create_fundamental_review_prompt(libb: LIBBmodel) -> str:
         else "No recent trade logs."
     )
 
-    # Candidates (exclude already-held tickers)
     already_held = list(portfolio["ticker"].str.upper()) if not portfolio.empty else []
-    candidates_text = get_market_candidates(today, price_limit=10.0, already_held=already_held)
+    candidates_text = get_market_candidates(today, price_limit=100.0, already_held=already_held)
 
     return (
         SYSTEM_HEADER.format(today=today)
         + PURPOSE
-        + TRADER_MINDSET
+        + INVESTOR_MINDSET
+        + HOLDING_DISCIPLINE
         + FUNDAMENTAL_REQUIREMENTS
         + STRATEGY_SECTION
         + CANDIDATE_SECTION.format(candidates=candidates_text)
