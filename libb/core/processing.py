@@ -84,7 +84,9 @@ class Processing:
                 try:
                     self.portfolio, self.cash, status = process_order(
                         order, self.portfolio, self.cash,
-                        self._trade_log_path, commission=self.commission
+                        self._trade_log_path,
+                        commission=self.commission,
+                        market_calendar=self.market_calendar,
                     )
                 except Exception as exc:
                     reason = f"EXECUTION_ERROR: {exc}"

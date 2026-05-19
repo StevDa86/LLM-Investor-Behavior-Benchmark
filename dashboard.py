@@ -44,6 +44,8 @@ def append_workflow_log(msg: str) -> None:
     ts = datetime.now().strftime("%H:%M:%S")
     _workflow_log.append(f"[{ts}] {msg}")
     print(msg)
+
+
 def _sanitize_floats(obj):
     """Replace NaN/Inf float values with None (JSON null) recursively.
     Python's json module emits non-standard NaN/Infinity literals that
@@ -176,7 +178,7 @@ def api_reports(run):
     # und global absteigend sortieren → neueste zuerst
     def _sort_key(entry):
         parts = entry["name"].split(" - ")
-        date_str = parts[1] if len(parts) >= 2 else ""
+        date_str = parts[1].replace(".txt", "") if len(parts) >= 2 else ""
         slot_str = parts[2].replace(".txt", "") if len(parts) >= 3 else ""
         return (date_str, slot_str)
     out.sort(key=_sort_key, reverse=True)
@@ -334,7 +336,7 @@ def api_next_runs():
         else:                     # Mon–Fri – all trading + nightly slots
             day_schedule = WEEKDAY_SCHEDULE
 
-        for time_str, slot_name in day_schedule:
+        for time_str, slot_name in sorted(day_schedule, key=lambda item: item[0]):
             h, m = map(int, time_str.split(":"))
             scheduled = candidate.replace(hour=h, minute=m, second=0, microsecond=0)
             if scheduled > now:

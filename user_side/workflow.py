@@ -19,13 +19,17 @@ BUDGET_FLOOR  = 0.30   # stop trading if portfolio value drops below 30% of star
 def _current_slot() -> str:
     """Determine the time slot based on the current local time.
 
+    Saturday      → 'weekend'
     before 12:00  → 'morning'
     12:00–12:59   → 'noon'
     13:00–15:59   → 'midday'
     16:00–21:59   → 'evening'
     22:00+        → 'night'
     """
-    hour = datetime.now().hour
+    now = datetime.now()
+    if now.weekday() == 5:
+        return "weekend"
+    hour = now.hour
     if hour < 12:
         return "morning"
     elif hour < 13:
@@ -42,11 +46,11 @@ def _budget_ok(libb: LIBBmodel, log_fn: Callable[..., None]) -> bool:
     """Return False and log a warning when portfolio value is below the budget floor."""
     positions_value = libb.portfolio["market_value"].fillna(0).sum() if not libb.portfolio.empty else 0.0
     total = libb.cash + positions_value
-    floor = libb.STARTING_CASH * BUDGET_FLOOR
+    floor = STARTING_CASH * BUDGET_FLOOR
     if total < floor:
         log_fn(
             f"  ⚠ Budget-Schutz: Portfoliowert {total:.2f} EUR < "
-            f"{floor:.2f} EUR (={BUDGET_FLOOR*100:.0f}% von {libb.STARTING_CASH:.0f} EUR). "
+            f"{floor:.2f} EUR (={BUDGET_FLOOR*100:.0f}% von {STARTING_CASH:.0f} EUR). "
             "Flow übersprungen – kein weiteres Trading bis zur manuellen Überprüfung."
         )
         return False

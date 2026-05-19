@@ -195,11 +195,12 @@ def create_fundamental_review_prompt(libb: LIBBmodel) -> str:
             )
 
     execution_log = libb.recent_execution_logs()
-    execution_log_text = (
-        execution_log.to_string(index=False)
-        if not isinstance(execution_log, str) and not execution_log.empty
-        else "No recent trade logs."
-    )
+    if isinstance(execution_log, str):
+        execution_log_text = execution_log if execution_log.strip() else "No recent trade logs."
+    elif not execution_log.empty:
+        execution_log_text = execution_log.to_string(index=False)
+    else:
+        execution_log_text = "No recent trade logs."
 
     already_held = list(portfolio["ticker"].str.upper()) if not portfolio.empty else []
     candidates_text = get_market_candidates(today, price_limit=100.0, already_held=already_held)
@@ -221,4 +222,3 @@ def create_fundamental_review_prompt(libb: LIBBmodel) -> str:
         )
         + OUTPUT_FORMAT
     )
-

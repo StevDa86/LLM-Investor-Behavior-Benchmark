@@ -11,9 +11,9 @@ MIN_HOLD_TRADING_DAYS = 10
 MAX_LOSS_EXCEPTION_PCT = -25.0   # allow early sell if unrealised loss exceeds this
 
 
-def _trading_days_since_buy(ticker: str, order_date: str, trade_log_path: Path) -> int | None:
+def _trading_days_since_buy(ticker: str, order_date: str, trade_log_path: Path, market_calendar: str) -> int | None:
     """
-    Return the number of NYSE trading days between the last filled BUY for
+    Return the number of market trading days between the last filled BUY for
     *ticker* and *order_date*.  Returns None when no filled BUY is found
     (position data inconsistency – caller should allow the sell to proceed).
     """
@@ -36,7 +36,7 @@ def _trading_days_since_buy(ticker: str, order_date: str, trade_log_path: Path) 
         return 0
 
     try:
-        cal = mcal.get_calendar("NYSE")
+        cal = mcal.get_calendar(market_calendar)
         schedule = cal.schedule(start_date=last_buy_date, end_date=sell_date)
         # subtract 1: buy day itself is not counted as a held day
         return max(0, len(schedule) - 1)
@@ -59,7 +59,14 @@ def _unrealised_loss_pct(portfolio_df: pd.DataFrame, ticker: str, current_price:
     return ((current_price - avg_cost) / avg_cost) * 100.0
 
 
-def process_sell(order: Order, portfolio_df: pd.DataFrame, cash: float, trade_log_path: Path, commission: float = 0.0) -> tuple[pd.DataFrame, float, bool]:
+def process_sell(
+    order: Order,
+    portfolio_df: pd.DataFrame,
+    cash: float,
+    trade_log_path: Path,
+    commission: float = 0.0,
+    market_calendar: str = "NYSE",
+) -> tuple[pd.DataFrame, float, bool]:
     ticker = order["ticker"].upper()
     order_type = order["order_type"].upper()
     date = order["date"]
@@ -87,7 +94,7 @@ def process_sell(order: Order, portfolio_df: pd.DataFrame, cash: float, trade_lo
     # ------------------------------------------------------------------
     if order_type != "STOPLOSS_MET":
         ref_price = open_price if limit_price <= 0 else limit_price
-        days_held = _trading_days_since_buy(ticker, date, trade_log_path)
+        days_held = _trading_days_since_buy(ticker, date, trade_log_path, market_calendar)
         loss_pct  = _unrealised_loss_pct(portfolio_df, ticker, ref_price)
 
         exceeds_loss_limit = (loss_pct is not None and loss_pct <= MAX_LOSS_EXCEPTION_PCT)

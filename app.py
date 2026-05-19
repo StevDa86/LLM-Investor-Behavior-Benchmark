@@ -2,8 +2,8 @@
 LLM-IBB – Gesamtapp
 ====================
 Startet den Web-Dashboard-Server UND führt den Trading-Workflow
-automatisch dreimal täglich (Mo–Fr, Lokalzeit) aus:
-  09:00 → morning  |  16:00 → midday  |  18:00 → evening
+automatisch mehrmals täglich (Mo–Fr, Lokalzeit) aus:
+  09:00 → morning  |  12:00 → noon  |  16:00 → midday  |  18:00 → evening
 
 Start:
     python app.py
@@ -129,15 +129,19 @@ if __name__ == "__main__":
     PORT = 5000
 
     print()
-    print("╔══════════════════════════════════════════════════════════╗")
-    print("║            LLM-IBB – Gesamtapp gestartet                 ║")
-    print(f"║  Dashboard   :  http://{HOST}:{PORT}                        ║")
-    print("║  Trading     :  Mo–Fr  09:00 / 12:00 / 16:00 / 18:00   ║")
-    print("║  Deep Res.   :  Mo–Fr  22:00  (nach US-Börsenschluss)   ║")
-    print("║  Fundamental :  Sa     10:00  (Unternehmensanalyse)      ║")
-    print("╚══════════════════════════════════════════════════════════╝")
+    banner_lines = [
+        "LLM-IBB – Gesamtapp gestartet",
+        f"Dashboard   :  http://{HOST}:{PORT}",
+        "Trading     :  Mo–Fr  09:00 / 12:00 / 16:00 / 18:00",
+        "Deep Res.   :  Mo–Fr  22:00  (nach US-Börsenschluss)",
+        "Fundamental :  Sa     10:00  (Unternehmensanalyse)",
+    ]
+    inner_width = max(len(line) for line in banner_lines) + 2
+    print("╔" + ("═" * inner_width) + "╗")
+    for line in banner_lines:
+        print(f"║ {line.ljust(inner_width - 2)} ║")
+    print("╚" + ("═" * inner_width) + "╝")
     print()
 
     app.run(host=HOST, port=PORT, debug=False, threaded=True)
-
 

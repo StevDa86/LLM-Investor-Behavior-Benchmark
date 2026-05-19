@@ -151,14 +151,14 @@ Output exactly three blocks:
 </DAILY_ANALYSIS>
 
 <ORDERS_JSON>
-{"orders": [
-  {"action":"b","ticker":"TICK.XX","shares":N,"order_type":"LIMIT",
+{{"orders": [
+  {{"action":"b","ticker":"TICK.XX","shares":N,"order_type":"LIMIT",
    "limit_price":0.00,"time_in_force":"DAY","date":"YYYY-MM-DD",
-   "stop_loss":0.00,"rationale":"...","confidence":0.0}
-]}
+   "stop_loss":0.00,"rationale":"...","confidence":0.0}}
+]}}
 </ORDERS_JSON>
 
-If no trade: <ORDERS_JSON>{"orders": []}</ORDERS_JSON>
+If no trade: <ORDERS_JSON>{{"orders": []}}</ORDERS_JSON>
 
 <CONFIDENCE_LVL>
 0.65

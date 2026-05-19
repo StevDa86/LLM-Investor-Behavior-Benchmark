@@ -1,4 +1,4 @@
-﻿import json
+import json
 import re
 def parse_json(text: str, tag: str):
     # Extract the block from given section
