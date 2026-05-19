@@ -15,8 +15,8 @@ def process_buy(order: Order, portfolio_df: pd.DataFrame, cash: float, trade_log
 
     # ---------- MAX POSITIONS GUARD ----------
     existing_tickers = set(portfolio_df["ticker"].str.upper()) if not portfolio_df.empty else set()
-    if ticker not in existing_tickers and len(existing_tickers) >= 5:
-        reason = f"MAX_POSITIONS_REACHED (5): cannot initiate {ticker} while holding {sorted(existing_tickers)}"
+    if ticker not in existing_tickers and len(existing_tickers) >= 7:
+        reason = f"MAX_POSITIONS_REACHED (7): cannot initiate {ticker} while holding {sorted(existing_tickers)}"
         trade_dict = order_to_trade_schema(order, executed_price=None, PnL=None,
                                            status="FAILED", reason=reason)
         append_log(trade_log_path, trade_dict)

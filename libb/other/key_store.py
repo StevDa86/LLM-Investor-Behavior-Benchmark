@@ -33,6 +33,12 @@ KNOWN_KEYS: list[dict] = [
         "url":   "https://console.groq.com",
     },
     {
+        "name":  "OPENROUTER_API_KEY",
+        "label": "OpenRouter API Key",
+        "hint":  "Required for OpenRouter models (e.g. stepfun/step-3.5-flash:free) — free tier at openrouter.ai",
+        "url":   "https://openrouter.ai/keys",
+    },
+    {
         "name":  "OPENAI_API_KEY",
         "label": "OpenAI API Key",
         "hint":  "Required for GPT-4.1 / o-series models",
@@ -43,6 +49,12 @@ KNOWN_KEYS: list[dict] = [
         "label": "DeepSeek API Key",
         "hint":  "Required for DeepSeek-Chat / DeepSeek-R1 models",
         "url":   "https://platform.deepseek.com",
+    },
+    {
+        "name":  "GOOGLE_AI_API_KEY",
+        "label": "Google AI Studio API Key",
+        "hint":  "Free tier at aistudio.google.com — used for Gemini 3.1 Flash Lite (500 req/day)",
+        "url":   "https://aistudio.google.com/apikey",
     },
 ]
 

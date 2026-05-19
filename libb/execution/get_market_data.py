@@ -174,8 +174,18 @@ def _extract_bulk_snapshots(
 
 def download_yf_data(ticker: str, start_date: date | str, end_date: date | str) -> MarketHistoryObject:
 
-    # account for YF ticker differences
-    ticker = ticker.replace(".", "-")
+    # Exchange-suffixed tickers (e.g. TIT.MI, TEF.MC) must keep their dot.
+    # Only US class-share tickers need the dot replaced with a hyphen (e.g. BRK.B -> BRK-B).
+    # Heuristic: if the part after the last dot is a known exchange code, leave it unchanged.
+    _EXCHANGE_SUFFIXES = {
+        "MI", "MC", "L", "AS", "PA", "BR", "TO", "V", "HK", "T",
+        "SI", "KS", "SS", "SZ", "BO", "NS", "AX", "NZ", "MX",
+        "SA", "LS", "DE", "F", "BE", "SG", "VX", "ST", "CO", "OL", "HE",
+    }
+    if "." in ticker:
+        suffix = ticker.rsplit(".", 1)[-1].upper()
+        if suffix not in _EXCHANGE_SUFFIXES:
+            ticker = ticker.replace(".", "-")
 
     try:
         ticker_data = yf.download(
@@ -311,11 +321,40 @@ def download_stooq_data(
 
     ticker = ticker.lower()
 
-    # If no exchange suffix, assume US (.us); otherwise use as-is
+    # Mapping from Yahoo Finance exchange suffixes to Stooq equivalents.
+    # YF uses exchange city/code (e.g. .MI for Milan), Stooq uses country code (e.g. .it).
+    _YF_TO_STOOQ_SUFFIX: dict[str, str] = {
+        "mi": "it",   # Milan → Italy
+        "mc": "es",   # Madrid → Spain
+        "l":  "uk",   # London → UK
+        "as": "nl",   # Amsterdam → Netherlands
+        "pa": "fr",   # Paris → France
+        "br": "be",   # Brussels → Belgium
+        "to": "ca",   # Toronto → Canada
+        "v":  "ca",   # TSX Venture → Canada
+        "hk": "hk",   # Hong Kong
+        "t":  "jp",   # Tokyo → Japan
+        "si": "sg",   # Singapore
+        "ax": "au",   # Australia
+        "nz": "nz",   # New Zealand
+        "mx": "mx",   # Mexico
+        "sa": "br",   # São Paulo → Brazil
+        "de": "de",   # XETRA → Germany
+        "f":  "de",   # Frankfurt → Germany
+        "vx": "ch",   # Switzerland
+        "st": "se",   # Stockholm → Sweden
+        "co": "dk",   # Copenhagen → Denmark
+        "ol": "no",   # Oslo → Norway
+        "he": "fi",   # Helsinki → Finland
+    }
+
     if "." not in ticker:
+        # No suffix → assume US market
         ticker_stooq = f"{ticker}.us"
     else:
-        ticker_stooq = ticker
+        base, yf_suffix = ticker.rsplit(".", 1)
+        stooq_suffix = _YF_TO_STOOQ_SUFFIX.get(yf_suffix, yf_suffix)
+        ticker_stooq = f"{base}.{stooq_suffix}"
 
     # Convert dates to YYYYMMDD format
     start_str = pd.Timestamp(start_date).strftime("%Y%m%d")

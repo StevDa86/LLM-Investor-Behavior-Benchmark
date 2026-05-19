@@ -20,7 +20,7 @@ from pathlib import Path
 class Processing:
     def __init__(self, *, run_date, portfolio, cash, STARTING_CASH, _trade_log_path, portfolio_history,
                  _position_history_path, _portfolio_history_path, _portfolio_path, _model_path,
-                 commission: float = 0.0, market_calendar: str = "NYSE") -> None:
+                 commission: float = 1.0, market_calendar: str = "XETR") -> None:
 
         self.run_date: date = run_date
 
@@ -40,6 +40,7 @@ class Processing:
         self.filled_orders = 0;
         self.skipped_orders = 0;
         self.failed_orders = 0;
+        self.unavailable_tickers: list[str] = []  # Tickers die keinen Marktdaten liefern
 
 
 # ----------------------------------
@@ -83,7 +84,9 @@ class Processing:
                 try:
                     self.portfolio, self.cash, status = process_order(
                         order, self.portfolio, self.cash,
-                        self._trade_log_path, commission=self.commission
+                        self._trade_log_path,
+                        commission=self.commission,
+                        market_calendar=self.market_calendar,
                     )
                 except Exception as exc:
                     reason = f"EXECUTION_ERROR: {exc}"
@@ -191,7 +194,9 @@ class Processing:
                     f"[WARN] Market data unavailable for {ticker} on {self.run_date}: {e}. "
                     "Keeping last known price."
                 )
-    
+                if ticker not in self.unavailable_tickers:
+                    self.unavailable_tickers.append(ticker)
+
 # ----------------------------------
 # Step 4: Append Disk History
 # ----------------------------------
@@ -259,7 +264,10 @@ class Processing:
     
     def get_order_status_count(self) -> Tuple[int, int, int]:
         return self.filled_orders, self.failed_orders, self.skipped_orders
-    
+
+    def get_unavailable_tickers(self) -> list[str]:
+        return self.unavailable_tickers
+
     def get_portfolio(self) -> pd.DataFrame:
         return self.portfolio
     

@@ -201,18 +201,28 @@
       box-shadow: -8px 0 32px rgba(0,0,0,0.5);
     }
     #logPanel.open { transform: translateX(0); }
-    #logOutput {
+    /* ── Log-Panel outputs ── */
+    #logOutputWorkflow, #logOutputBacktest {
       font-family: 'Courier New', Courier, monospace;
       font-size: 11px; line-height: 1.6;
       color: #9ca3af; white-space: pre-wrap; word-break: break-all;
       flex: 1; overflow-y: auto; padding: 12px 14px;
       background: #0d1117;
     }
-    #logOutput .log-ok     { color: #10b981; }
-    #logOutput .log-warn   { color: #f59e0b; }
-    #logOutput .log-err    { color: #ef4444; }
-    #logOutput .log-cached { color: #3b82f6; }
-    #logOutput .log-abort  { color: #8b5cf6; }
+    #logOutputWorkflow .log-ok,
+    #logOutputBacktest .log-ok     { color: #10b981; }
+    #logOutputWorkflow .log-warn,
+    #logOutputBacktest .log-warn   { color: #f59e0b; }
+    #logOutputWorkflow .log-err,
+    #logOutputBacktest .log-err    { color: #ef4444; }
+    #logOutputWorkflow .log-cached,
+    #logOutputBacktest .log-cached { color: #3b82f6; }
+    #logOutputWorkflow .log-abort,
+    #logOutputBacktest .log-abort  { color: #8b5cf6; }
+
+    /* ── Log Panel tabs ── */
+    .log-tab-btn { color: #6b7280; }
+    .log-tab-btn.active { background: #1f2937; color: #f3f4f6; }
   </style>
 <body class="text-gray-100 min-h-screen">
 
@@ -401,7 +411,7 @@
     <section id="page-overview" class="page active">
 
       <!-- KPI row -->
-      <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 mb-5">
+      <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7 gap-3 mb-5">
         <div class="kpi-card">
           <div class="text-[11px] text-gray-500 font-medium mb-1.5">Total Equity</div>
           <div id="kpi-equity" class="text-xl font-bold text-white">–</div>
@@ -421,6 +431,11 @@
           <div class="text-[11px] text-gray-500 font-medium mb-1.5">Daily Return</div>
           <div id="kpi-daily-return" class="text-xl font-bold text-white">–</div>
           <div class="text-[11px] text-gray-600 mt-1">Last trading day</div>
+        </div>
+        <div class="kpi-card">
+          <div class="text-[11px] text-gray-500 font-medium mb-1.5">Unrealized PnL</div>
+          <div id="kpi-unrealized-pnl" class="text-xl font-bold text-white">–</div>
+          <div class="text-[11px] text-gray-600 mt-1">Open positions</div>
         </div>
         <div class="kpi-card">
           <div class="text-[11px] text-gray-500 font-medium mb-1.5">Open Positions</div>
@@ -458,6 +473,10 @@
 
     <!-- ══════════════ PORTFOLIO ════════════════════════════════════════════ -->
     <section id="page-portfolio" class="page">
+      <div class="card mb-4">
+        <h2 class="text-sm font-semibold text-gray-200 mb-4">Portfolio Allocation</h2>
+        <div style="height: 220px;"><canvas id="allocationDonut"></canvas></div>
+      </div>
       <div class="card">
         <h2 class="text-sm font-semibold text-gray-200 mb-4">Current Positions</h2>
         <div class="tbl-wrap">
@@ -479,6 +498,32 @@
 
     <!-- ══════════════ TRADES ═══════════════════════════════════════════════ -->
     <section id="page-trades" class="page">
+
+      <!-- Pending Orders -->
+      <div id="pendingOrdersCard" class="card mb-4 hidden">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <i class="fas fa-clock-rotate-left text-yellow-400 text-xs"></i>
+            <h2 class="text-sm font-semibold text-gray-200">Pending Orders</h2>
+            <span id="pendingBadge"
+                  class="bg-yellow-500/15 border border-yellow-500/30 text-yellow-400
+                         text-[11px] font-semibold px-2 py-0.5 rounded-full"></span>
+          </div>
+          <span class="text-[11px] text-gray-500 italic">Queued – werden am angegebenen Datum ausgeführt</span>
+        </div>
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Exec. Date</th><th>Ticker / Company</th><th>Action</th><th>Type</th>
+                <th>Shares</th><th>Limit Price</th><th>Stop Loss</th><th>Conf.</th><th>Rationale</th>
+              </tr>
+            </thead>
+            <tbody id="pendingBody"></tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="card">
         <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h2 class="text-sm font-semibold text-gray-200">Trade Log</h2>
@@ -511,11 +556,11 @@
               <tr>
                 <th>Date</th><th>Ticker / Company</th><th>Action</th><th>Type</th>
                 <th>Shares</th><th>Limit</th><th>Exec. Price</th>
-                <th>PnL</th><th>Status</th><th>Conf.</th>
+                <th>PnL</th><th>Status</th><th>Conf.</th><th>Reason</th>
               </tr>
             </thead>
             <tbody id="tradesBody">
-              <tr><td colspan="10" class="text-center py-10 text-gray-600">Loading…</td></tr>
+              <tr><td colspan="11" class="text-center py-10 text-gray-600">Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -811,9 +856,25 @@
 <div id="logPanel">
   <!-- Panel-Header -->
   <div class="flex items-center justify-between px-4 py-3 border-b border-[#1f2937] flex-shrink-0">
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-3">
       <i class="fas fa-terminal text-purple-400 text-xs"></i>
-      <span class="text-sm font-semibold text-gray-200">Backtest Log</span>
+      <!-- Tabs -->
+      <div class="flex gap-0.5 bg-[#0f1117] rounded-lg p-0.5">
+        <button id="logTabWorkflow" onclick="switchLogTab('workflow')"
+                class="log-tab-btn text-[11px] font-medium px-2.5 py-1 rounded-md transition-colors">
+          <i class="fas fa-play text-[9px] mr-1"></i>Workflow
+        </button>
+        <button id="logTabBacktest" onclick="switchLogTab('backtest')"
+                class="log-tab-btn active text-[11px] font-medium px-2.5 py-1 rounded-md transition-colors">
+          <i class="fas fa-flask text-[9px] mr-1"></i>Backtest
+        </button>
+      </div>
+      <!-- Live indicators -->
+      <span id="logLiveIndicatorWorkflow"
+            class="hidden items-center gap-1 text-[10px] text-emerald-400
+                   bg-emerald-400/10 px-2 py-0.5 rounded-full">
+        <span class="spin w-2 h-2 inline-block border-emerald-400 border-t-emerald-200"></span> Live
+      </span>
       <span id="logLiveIndicator"
             class="hidden items-center gap-1 text-[10px] text-purple-400
                    bg-purple-400/10 px-2 py-0.5 rounded-full">
@@ -821,7 +882,7 @@
       </span>
     </div>
     <div class="flex items-center gap-2">
-      <!-- Stop-Button -->
+      <!-- Stop-Button (Backtest) -->
       <button id="btnCancelBacktest" onclick="cancelBacktest()"
               class="hidden items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium
                      bg-red-600/20 hover:bg-red-600/40 text-red-400 border border-red-600/30
@@ -829,7 +890,7 @@
         <i class="fas fa-stop text-[9px]"></i> Stop
       </button>
       <!-- Clear -->
-      <button onclick="document.getElementById('logOutput').innerHTML=''"
+      <button onclick="clearActiveLog()"
               class="text-gray-600 hover:text-gray-400 text-xs px-2 py-1 rounded transition-colors"
               title="Log leeren">
         <i class="fas fa-eraser"></i>
@@ -841,16 +902,48 @@
       </button>
     </div>
   </div>
-  <!-- Log-Ausgabe -->
-  <pre id="logOutput"><span class="text-gray-700">– Noch kein Backtest gestartet –</span></pre>
+  <!-- Log-Ausgabe: Workflow -->
+  <pre id="logOutputWorkflow" class="hidden"><span class="text-gray-700">– Noch kein Workflow gestartet –</span></pre>
+  <!-- Log-Ausgabe: Backtest -->
+  <pre id="logOutputBacktest"><span class="text-gray-700">– Noch kein Backtest gestartet –</span></pre>
   <!-- Panel-Footer -->
   <div class="px-4 py-2 border-t border-[#1f2937] flex-shrink-0
               flex items-center justify-between text-[10px] text-gray-700">
-    <span id="logLineCount">0 Zeilen</span>
+    <span id="logLineCountBacktest">0 Zeilen</span>
+    <span id="logLineCountWorkflow" style="display:none">0 Zeilen</span>
     <button onclick="scrollLogToBottom()"
             class="hover:text-gray-500 transition-colors">
       <i class="fas fa-angles-down"></i> Ende
     </button>
+  </div>
+</div>
+
+<!-- ════════════════════════ LOG DETAIL MODAL ═══════════════════════════════ -->
+<div id="logDetailModal"
+     class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+  <div class="bg-[#161b27] border border-[#1f2937] rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6 flex flex-col"
+       style="max-height: 80vh;">
+    <div class="flex items-center justify-between mb-4 flex-shrink-0">
+      <h2 class="text-sm font-bold text-white flex items-center gap-2">
+        <i class="fas fa-file-code text-emerald-400 text-xs"></i>
+        Log Detail
+        <span id="logDetailDate" class="text-gray-500 font-normal text-xs"></span>
+      </h2>
+      <button onclick="closeLogDetail()"
+              class="text-gray-600 hover:text-gray-300 transition-colors">
+        <i class="fas fa-xmark"></i>
+      </button>
+    </div>
+    <div class="flex-1 bg-[#0f1117] rounded-xl p-4 overflow-y-auto min-h-0">
+      <pre id="logDetailContent"
+           class="text-[11px] text-gray-400 font-mono whitespace-pre-wrap break-words"></pre>
+    </div>
+    <div class="mt-3 flex justify-end flex-shrink-0">
+      <button onclick="closeLogDetail()"
+              class="px-4 py-2 bg-[#1f2937] hover:bg-[#374151] rounded-lg text-sm text-gray-300 transition-all">
+        Schließen
+      </button>
+    </div>
   </div>
 </div>
 
@@ -869,10 +962,13 @@
 // ─── State ───────────────────────────────────────────────────────────────────
 let currentRun    = '';
 let allTrades     = [];
+let _allLogs      = [];   // cache for log-detail modal
 let charts        = {};
 let _tickerNames  = {};   // cache: ticker → company name
 let _lastWorkflowError = null;   // verhindert wiederholte Fehlerbanner
 let _lastBacktestError = null;
+let _activeLogTab = 'backtest';  // current log panel tab
+let _workflowLogPollTimer = null;
 
 /** Resolve ticker names via API (cached). */
 async function fetchTickerNames(tickers) {
@@ -926,7 +1022,7 @@ function fmt(n, dec = 2) {
 function fmtUsd(n) {
   const v = parseFloat(n);
   if (isNaN(v)) return '–';
-  return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return '€' + v.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 function fmtPct(n, dec = 2) {
   const v = parseFloat(n);
@@ -1100,8 +1196,33 @@ function toggleLogPanel(forceOpen) {
 }
 
 function scrollLogToBottom() {
-  const el = document.getElementById('logOutput');
-  el.scrollTop = el.scrollHeight;
+  const id = _activeLogTab === 'workflow' ? 'logOutputWorkflow' : 'logOutputBacktest';
+  const el = document.getElementById(id);
+  if (el) el.scrollTop = el.scrollHeight;
+}
+
+function clearActiveLog() {
+  const id = _activeLogTab === 'workflow' ? 'logOutputWorkflow' : 'logOutputBacktest';
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = '';
+  const countId = _activeLogTab === 'workflow' ? 'logLineCountWorkflow' : 'logLineCountBacktest';
+  document.getElementById(countId).textContent = '0 Zeilen';
+}
+
+function switchLogTab(tab) {
+  _activeLogTab = tab;
+  const isWorkflow = tab === 'workflow';
+  document.getElementById('logTabWorkflow').classList.toggle('active', isWorkflow);
+  document.getElementById('logTabBacktest').classList.toggle('active', !isWorkflow);
+  document.getElementById('logOutputWorkflow').classList.toggle('hidden', !isWorkflow);
+  document.getElementById('logOutputBacktest').classList.toggle('hidden', isWorkflow);
+  document.getElementById('logLineCountWorkflow').style.display = isWorkflow ? '' : 'none';
+  document.getElementById('logLineCountBacktest').style.display = isWorkflow ? 'none' : '';
+  // Only show stop button on backtest tab
+  const cancelBtn = document.getElementById('btnCancelBacktest');
+  if (isWorkflow) {
+    cancelBtn.classList.add('hidden'); cancelBtn.classList.remove('flex');
+  }
 }
 
 function _colorLine(line) {
@@ -1119,13 +1240,27 @@ async function _fetchLog() {
   try {
     const data = await fetch('/api/backtest-log').then(r => r.json());
     const lines = data.lines || [];
-    const el = document.getElementById('logOutput');
+    const el = document.getElementById('logOutputBacktest');
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     el.innerHTML = lines.length
       ? lines.map(_colorLine).join('\n')
       : '<span class="text-gray-700">– Noch kein Log –</span>';
-    document.getElementById('logLineCount').textContent = `${lines.length} Zeilen`;
+    document.getElementById('logLineCountBacktest').textContent = `${lines.length} Zeilen`;
     if (atBottom) scrollLogToBottom();
+  } catch (_) {}
+}
+
+async function _fetchWorkflowLog() {
+  try {
+    const data = await fetch('/api/workflow-log').then(r => r.json());
+    const lines = data.lines || [];
+    const el = document.getElementById('logOutputWorkflow');
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    el.innerHTML = lines.length
+      ? lines.map(_colorLine).join('\n')
+      : '<span class="text-gray-700">– Noch kein Workflow-Log –</span>';
+    document.getElementById('logLineCountWorkflow').textContent = `${lines.length} Zeilen`;
+    if (atBottom && _activeLogTab === 'workflow') scrollLogToBottom();
   } catch (_) {}
 }
 
@@ -1160,6 +1295,23 @@ async function pollWorkflowStatus() {
       document.getElementById('btnWorkflow').disabled = false;
     }
 
+    // Workflow live indicator + log polling
+    const wfLive = document.getElementById('logLiveIndicatorWorkflow');
+    if (wf.running) {
+      wfLive.classList.remove('hidden'); wfLive.classList.add('inline-flex');
+      if (!_workflowLogPollTimer) {
+        _workflowLogPollTimer = setInterval(_fetchWorkflowLog, 2000);
+        _fetchWorkflowLog();
+      }
+    } else {
+      wfLive.classList.add('hidden'); wfLive.classList.remove('inline-flex');
+      if (_workflowLogPollTimer) {
+        clearInterval(_workflowLogPollTimer);
+        _workflowLogPollTimer = null;
+        _fetchWorkflowLog();
+      }
+    }
+
     // Backtest badge
     const btEl = document.getElementById('backtestStatus');
     btEl.classList.toggle('hidden', !bt.running);
@@ -1171,9 +1323,11 @@ async function pollWorkflowStatus() {
     if (bt.running) {
       btBtn.disabled = true;
       btBtn.innerHTML = '<span class="spin w-3 h-3 inline-block mr-1.5"></span> Running…';
-      // Stop-Button + Live-Indikator einblenden
-      cancelBtn.classList.remove('hidden');
-      cancelBtn.classList.add('flex');
+      // Stop-Button + Live-Indikator einblenden (nur wenn Backtest-Tab aktiv)
+      if (_activeLogTab === 'backtest') {
+        cancelBtn.classList.remove('hidden');
+        cancelBtn.classList.add('flex');
+      }
       cancelBtn.disabled = false;
       cancelBtn.innerHTML = '<i class="fas fa-stop text-[9px]"></i> Stop';
       liveIndicator.classList.remove('hidden');
@@ -1195,7 +1349,7 @@ async function pollWorkflowStatus() {
       if (_logPollTimer) {
         clearInterval(_logPollTimer);
         _logPollTimer = null;
-        _fetchLog(); // letzten Stand holen
+        _fetchLog();
       }
     }
     if (bt.error && bt.error !== _lastBacktestError) {
@@ -1208,9 +1362,10 @@ async function pollWorkflowStatus() {
 // ─── Overview ────────────────────────────────────────────────────────────────
 async function loadOverview() {
   try {
-    const [ov, hist] = await Promise.all([
+    const [ov, hist, nextRuns] = await Promise.all([
       fetch(`/api/${currentRun}/overview`).then(r => r.json()),
       fetch(`/api/${currentRun}/history`).then(r => r.json()),
+      fetch('/api/next-runs').then(r => r.json()),
     ]);
 
     document.getElementById('kpi-equity').textContent = fmtUsd(ov.equity);
@@ -1227,9 +1382,14 @@ async function loadOverview() {
     drEl.textContent  = (drVal !== null && drVal !== undefined) ? fmtPct(drVal) : '–';
     drEl.className    = `text-xl font-bold ${numColor(drVal)}`;
 
+    const upnlEl = document.getElementById('kpi-unrealized-pnl');
+    const upnl = ov.total_unrealized_pnl;
+    upnlEl.textContent = (upnl != null) ? fmtUsd(upnl) : '–';
+    upnlEl.className   = `text-xl font-bold ${numColor(upnl)}`;
+
     renderEquityChart(hist);
     renderDailyRetChart(hist);
-    renderLastLog(ov.last_log);
+    renderLastLog(ov.last_log, nextRuns);
 
   } catch (e) { showError('Übersicht konnte nicht geladen werden', e.message); }
 }
@@ -1269,7 +1429,7 @@ function renderEquityChart(hist) {
         ...BASE_OPTS.scales,
         y: {
           ...BASE_OPTS.scales.y,
-          ticks: { ...BASE_OPTS.scales.y.ticks, callback: v => '$' + v.toLocaleString() }
+          ticks: { ...BASE_OPTS.scales.y.ticks, callback: v => '€' + v.toLocaleString('de-DE') }
         }
       }
     }
@@ -1292,35 +1452,76 @@ function renderDailyRetChart(hist) {
   });
 }
 
-function renderLastLog(log) {
+function renderLastLog(log, nextRuns = []) {
   const el = document.getElementById('lastLogBlock');
+  let html = '';
   if (!log || !Object.keys(log).length) {
-    el.innerHTML = '<p class="text-gray-600 text-xs">No execution log yet.</p>';
-    return;
+    html = '<p class="text-gray-600 text-xs">No execution log yet.</p>';
+  } else {
+    const slotBadgeColor = { morning: 'blue', midday: 'yellow', evening: 'purple' };
+    const slotVal = log.slot ? badge(log.slot, slotBadgeColor[log.slot] || 'gray') : '–';
+    const startedShort = log.started_at ? String(log.started_at).replace('T', ' ').split('.')[0] : '–';
+    const finishedShort = log.finished_at ? String(log.finished_at).replace('T', ' ').split('.')[0] : '–';
+    const rows = [
+      ['Date', log.date], ['Weekday', log.weekday], ['Slot', slotVal],
+      ['Started', startedShort], ['Finished', finishedShort],
+      ['NYSE Open', log.nyse_open_on_date ? '✓ Yes' : '✗ No'],
+      ['Eligible', log.eligible_for_execution ? '✓ Yes' : '✗ No'],
+      ['Status', log.processing_status],
+      ['Orders', log.orders_processed], ['Failed', log.orders_failed],
+      ['Portfolio', fmtUsd(log.portfolio_value)],
+    ];
+    html = rows.map(([k, v]) =>
+      `<div class="flex justify-between items-center py-1 border-b border-[#1f2937]/50 last:border-0">
+         <span class="text-gray-600">${k}</span>
+         <span class="text-gray-300 font-mono text-right">${v ?? '–'}</span>
+       </div>`
+    ).join('');
   }
-  const rows = [
-    ['Date', log.date], ['Weekday', log.weekday],
-    ['Started', log.started_at], ['Finished', log.finished_at],
-    ['NYSE Open', log.nyse_open_on_date ? '✓ Yes' : '✗ No'],
-    ['Eligible', log.eligible_for_execution ? '✓ Yes' : '✗ No'],
-    ['Status', log.processing_status],
-    ['Orders', log.orders_processed], ['Failed', log.orders_failed],
-    ['Portfolio', fmtUsd(log.portfolio_value)],
-  ];
-  el.innerHTML = rows.map(([k, v]) =>
-    `<div class="flex justify-between items-center py-1 border-b border-[#1f2937]/50 last:border-0">
-       <span class="text-gray-600">${k}</span>
-       <span class="text-gray-300 font-mono text-right">${v ?? '–'}</span>
-     </div>`
-  ).join('');
+  if (nextRuns && nextRuns.length) {
+    const slotColor = {
+      morning:  'text-blue-400',
+      noon:     'text-cyan-400',
+      midday:   'text-yellow-400',
+      evening:  'text-purple-400',
+      night:    'text-indigo-300',
+      weekend:  'text-green-400',
+    };
+    const slotLabel = {
+      morning:  'Morning',
+      midday:   'Midday',
+      noon:     'Noon',
+      evening:  'Evening',
+      night:    'Deep Research',
+      weekend:  'Fundamental',
+    };
+    html += `<div class="mt-3 pt-3 border-t border-[#1f2937]/50">
+      <div class="text-[10px] uppercase tracking-widest text-gray-600 mb-2 font-semibold">
+        <i class="fas fa-clock mr-1"></i>Next Scheduled Runs
+      </div>
+      ${nextRuns.map(r => `
+        <div class="flex justify-between items-center py-1">
+          <span class="${slotColor[r.slot] || 'text-gray-400'} text-xs font-medium">${slotLabel[r.slot] || r.slot}</span>
+          <span class="text-gray-500 text-[11px] font-mono">${r.datetime}</span>
+        </div>`).join('')}
+    </div>`;
+  }
+  el.innerHTML = html;
 }
 
 // ─── Portfolio ────────────────────────────────────────────────────────────────
 async function loadPositions() {
   try {
-    const rows = await (await fetch(`/api/${currentRun}/positions`)).json();
+    const [rows, ov] = await Promise.all([
+      fetch(`/api/${currentRun}/positions`).then(r => r.json()),
+      fetch(`/api/${currentRun}/overview`).then(r => r.json()),
+    ]);
     const body = document.getElementById('posBody');
-    if (!rows.length) { body.innerHTML = emptyRow(8, 'No open positions'); return; }
+    if (!rows.length) {
+      body.innerHTML = emptyRow(8, 'No open positions');
+      destroyChart('allocationDonut');
+      return;
+    }
     await fetchTickerNames(rows.map(r => r.ticker));
     body.innerHTML = rows.map(r => {
       const pnl = parseFloat(r.unrealized_pnl);
@@ -1335,7 +1536,51 @@ async function loadPositions() {
         <td class="${numColor(pnl)} font-medium">${fmtUsd(pnl)}</td>
       </tr>`;
     }).join('');
+    renderAllocationDonut(rows, ov.cash || 0);
   } catch (e) { showError('Positionen konnten nicht geladen werden', e.message); }
+}
+
+function renderAllocationDonut(positions, cash) {
+  destroyChart('allocationDonut');
+  if (!positions.length) return;
+  const data = positions.map(p => ({ label: p.ticker, value: parseFloat(p.market_value) || 0 }));
+  const cashVal = parseFloat(cash) || 0;
+  if (cashVal > 0) data.push({ label: 'Cash', value: cashVal });
+  const total = data.reduce((s, d) => s + d.value, 0);
+  if (total <= 0) return;
+  const colors = [...PALETTE, '#6b7280'];
+  charts.allocationDonut = new Chart(document.getElementById('allocationDonut').getContext('2d'), {
+    type: 'doughnut',
+    data: {
+      labels: data.map(d => {
+        const name = _tickerNames[d.label];
+        return (name && name !== d.label) ? `${d.label} · ${name}` : d.label;
+      }),
+      datasets: [{
+        data: data.map(d => d.value),
+        backgroundColor: data.map((_, i) => colors[i % colors.length]),
+        borderColor: '#161b27',
+        borderWidth: 2,
+        hoverOffset: 6,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'right',
+          labels: { color: '#9ca3af', font: { size: 11, family: 'Inter' }, boxWidth: 12, padding: 12 }
+        },
+        tooltip: {
+          ...BASE_OPTS.plugins.tooltip,
+          callbacks: {
+            label: ctx => ` ${ctx.label}: ${fmtUsd(ctx.parsed)} (${((ctx.parsed / total) * 100).toFixed(1)}%)`
+          }
+        }
+      },
+      cutout: '58%',
+    }
+  });
 }
 
 // ─── Trades ───────────────────────────────────────────────────────────────────
@@ -1348,6 +1593,38 @@ async function loadTrades() {
     document.getElementById('tradeFilter').onchange  = filterTrades;
     document.getElementById('statusFilter').onchange = filterTrades;
   } catch (e) { showError('Trades konnten nicht geladen werden', e.message); }
+  // Pending Orders laden
+  try {
+    const pending = await (await fetch(`/api/${currentRun}/pending-orders`)).json();
+    await fetchTickerNames(pending.map(r => r.ticker));
+    renderPendingOrders(pending);
+  } catch (_) {}
+}
+
+function renderPendingOrders(orders) {
+  const card    = document.getElementById('pendingOrdersCard');
+  const body    = document.getElementById('pendingBody');
+  const badgeEl = document.getElementById('pendingBadge');
+  if (!orders || !orders.length) { card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+  badgeEl.textContent = orders.length;
+  body.innerHTML = orders.map(o => {
+    const action = (o.action || '').toUpperCase();
+    const color  = action === 'S' ? 'red' : action === 'B' ? 'blue' : 'gray';
+    const label  = action === 'S' ? 'SELL' : action === 'B' ? 'BUY' : action;
+    const rat    = (o.rationale || '').length > 70 ? o.rationale.slice(0, 70) + '…' : (o.rationale || '–');
+    return `<tr>
+      <td class="text-yellow-400 font-medium">${o.date || '–'}</td>
+      <td>${tickerLabel(o.ticker)}</td>
+      <td>${badge(label, color)}</td>
+      <td class="text-gray-500 text-xs">${o.order_type || '–'}</td>
+      <td>${o.shares ?? '–'}</td>
+      <td>${o.limit_price != null ? fmtUsd(o.limit_price) : '–'}</td>
+      <td>${o.stop_loss != null && o.stop_loss !== 0 ? fmtUsd(o.stop_loss) : '–'}</td>
+      <td class="text-gray-400">${o.confidence != null ? (parseFloat(o.confidence) * 100).toFixed(0) + '%' : '–'}</td>
+      <td class="max-w-[260px] text-[11px] text-gray-400" title="${(o.rationale||'').replace(/"/g,'&quot;')}">${rat}</td>
+    </tr>`;
+  }).join('');
 }
 
 function filterTrades() {
@@ -1364,11 +1641,18 @@ function filterTrades() {
 function renderTrades(rows) {
   const body = document.getElementById('tradesBody');
   document.getElementById('tradeCount').textContent = rows.length ? `Showing ${rows.length} trade(s)` : '';
-  if (!rows.length) { body.innerHTML = emptyRow(10, 'No matching trades'); return; }
+  if (!rows.length) { body.innerHTML = emptyRow(11, 'No matching trades'); return; }
   const actionBadge = { BUY: 'blue', SELL: 'red', UPDATE: 'yellow' };
   const statusBadge = { FILLED: 'green', FAILED: 'red', SKIPPED: 'yellow', REJECTED: 'red' };
+  const reasonColor  = { FAILED: 'text-red-400', REJECTED: 'text-orange-400', SKIPPED: 'text-yellow-400' };
   body.innerHTML = [...rows].reverse().map(r => {
-    const pnl = (r.PnL !== '' && r.PnL !== 'None' && r.PnL != null) ? parseFloat(r.PnL) : null;
+    const pnl    = (r.PnL !== '' && r.PnL !== 'None' && r.PnL != null) ? parseFloat(r.PnL) : null;
+    const reason = (r.reason && r.reason !== '' && r.reason !== 'None') ? String(r.reason).replace(/\n/g, ' ') : '';
+    const rColor = reasonColor[r.status] || 'text-gray-500';
+    const rShort = reason.length > 55 ? reason.slice(0, 55) + '…' : reason;
+    const reasonCell = reason
+      ? `<span class="text-[11px] ${rColor} font-mono leading-tight" title="${reason.replace(/"/g, '&quot;')}">${rShort}</span>`
+      : '<span class="text-gray-700 text-xs">–</span>';
     return `<tr>
       <td class="text-gray-500">${r.date}</td>
       <td>${tickerLabel(r.ticker)}</td>
@@ -1380,6 +1664,7 @@ function renderTrades(rows) {
       <td class="${pnl != null ? numColor(pnl) : 'neu'} font-medium">${pnl != null ? fmtUsd(pnl) : '–'}</td>
       <td>${badge(r.status, statusBadge[r.status] || 'gray')}</td>
       <td class="text-gray-500">${r.confidence ? (parseFloat(r.confidence) * 100).toFixed(0) + '%' : '–'}</td>
+      <td class="max-w-[220px]">${reasonCell}</td>
     </tr>`;
   }).join('');
 }
@@ -1447,7 +1732,10 @@ function renderSentTable(data) {
 async function loadPerformance() {
   const el = document.getElementById('perfContent');
   try {
-    const data = await (await fetch(`/api/${currentRun}/performance`)).json();
+    const [data, hist] = await Promise.all([
+      fetch(`/api/${currentRun}/performance`).then(r => r.json()),
+      fetch(`/api/${currentRun}/history`).then(r => r.json()),
+    ]);
     if (!data.length) {
       el.innerHTML = `<div class="text-center py-20 text-gray-600">
         <i class="fas fa-chart-bar text-5xl mb-4 block opacity-20"></i>
@@ -1509,11 +1797,68 @@ async function loadPerformance() {
         </div>
       </div>
     `).join('') + `
+      <div class="card mb-4">
+        <h3 class="text-sm font-semibold text-gray-300 mb-4 flex items-center gap-2">
+          <i class="fas fa-arrow-trend-down text-red-400 text-xs"></i> Drawdown
+        </h3>
+        <div style="height: 160px;"><canvas id="drawdownChart"></canvas></div>
+      </div>
       <div class="text-xs text-gray-700 mt-1 px-1">
         Observation: ${p.start_date} → ${p.end_date} (${p.observation_count} days) · Generated: ${p.generated_at}
       </div>`;
 
+    renderDrawdownChart(hist);
+
   } catch (e) { el.innerHTML = `<div class="text-red-400 text-sm p-4">Error loading data: ${e}</div>`; }
+}
+
+function renderDrawdownChart(hist) {
+  destroyChart('drawdownChart');
+  if (!hist || hist.length < 2) return;
+  const equities = hist.map(r => parseFloat(r.equity));
+  let runMax = equities[0];
+  const drawdowns = equities.map(v => {
+    if (v > runMax) runMax = v;
+    return runMax > 0 ? ((v / runMax) - 1) * 100 : 0;
+  });
+  const ctx = document.getElementById('drawdownChart');
+  if (!ctx) return;
+  charts.drawdownChart = new Chart(ctx.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: hist.map(r => r.date),
+      datasets: [{
+        label: 'Drawdown %',
+        data: drawdowns,
+        borderColor: '#ef4444',
+        backgroundColor: 'rgba(239,68,68,0.12)',
+        borderWidth: 1.5,
+        fill: true,
+        tension: 0.2,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        pointBackgroundColor: '#ef4444',
+      }]
+    },
+    options: {
+      ...BASE_OPTS,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        ...BASE_OPTS.plugins,
+        tooltip: {
+          ...BASE_OPTS.plugins.tooltip,
+          callbacks: { label: ctx => ` ${ctx.parsed.y.toFixed(2)}%` }
+        }
+      },
+      scales: {
+        ...BASE_OPTS.scales,
+        y: {
+          ...BASE_OPTS.scales.y,
+          ticks: { ...BASE_OPTS.scales.y.ticks, callback: v => v.toFixed(1) + '%' }
+        }
+      }
+    }
+  });
 }
 
 // ─── Behavior ─────────────────────────────────────────────────────────────────
@@ -1633,20 +1978,25 @@ async function loadLogs() {
   const el = document.getElementById('logsContent');
   try {
     const logs = await (await fetch(`/api/${currentRun}/logs`)).json();
+    _allLogs = logs;
     if (!logs.length) {
       el.innerHTML = `<div class="text-center py-20 text-gray-600">
         <i class="fas fa-terminal text-5xl mb-4 block opacity-20"></i>No execution logs found.
       </div>`;
       return;
     }
-    el.innerHTML = logs.map(log => {
+    const slotBadgeColor = { morning: 'blue', midday: 'yellow', evening: 'purple' };
+    el.innerHTML = logs.map((log, i) => {
       const status = log.processing_status;
       const ok = status && status.toLowerCase() === 'success';
-      return `<div class="card mb-3">
+      const slotBadge = log.slot ? badge(log.slot, slotBadgeColor[log.slot] || 'gray') : '';
+      return `<div class="card mb-3 cursor-pointer hover:border-gray-600 transition-colors"
+                   onclick="openLogDetail(${i})" title="Klicken für Details">
         <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 flex-wrap">
             <span class="text-white font-semibold text-sm">${log.date || '–'}</span>
             <span class="text-gray-600 text-xs">${log.weekday || ''}</span>
+            ${slotBadge}
             ${status ? badge(status, ok ? 'green' : 'red') : ''}
           </div>
           ${log.eligible_for_execution != null
@@ -1659,12 +2009,25 @@ async function loadLogs() {
           <div><div class="text-gray-600 mb-0.5">Skipped</div><div class="text-yellow-400 font-medium">${log.orders_skipped ?? '–'}</div></div>
           <div><div class="text-gray-600 mb-0.5">Portfolio</div><div class="text-emerald-400 font-medium">${fmtUsd(log.portfolio_value)}</div></div>
           <div><div class="text-gray-600 mb-0.5">NYSE Open</div><div class="${log.nyse_open_on_date ? 'pos' : 'neu'}">${log.nyse_open_on_date ? 'Yes' : 'No'}</div></div>
-          <div><div class="text-gray-600 mb-0.5">Started</div><div class="text-gray-400 font-mono">${log.started_at ?? '–'}</div></div>
-          <div><div class="text-gray-600 mb-0.5">Finished</div><div class="text-gray-400 font-mono">${log.finished_at ?? '–'}</div></div>
+          <div><div class="text-gray-600 mb-0.5">Started</div><div class="text-gray-400 font-mono">${log.started_at ? String(log.started_at).replace('T',' ').split('.')[0] : '–'}</div></div>
+          <div><div class="text-gray-600 mb-0.5">Finished</div><div class="text-gray-400 font-mono">${log.finished_at ? String(log.finished_at).replace('T',' ').split('.')[0] : '–'}</div></div>
+          <div><div class="text-gray-600 mb-0.5 flex items-center gap-1"><i class="fas fa-circle-info text-[9px]"></i>Details</div><div class="text-gray-600 text-[10px]">Klicken ↗</div></div>
         </div>
       </div>`;
     }).join('');
   } catch (e) { el.innerHTML = `<div class="text-red-400 text-sm p-4">Error: ${e}</div>`; }
+}
+
+function openLogDetail(idx) {
+  const log = _allLogs[idx];
+  if (!log) return;
+  document.getElementById('logDetailDate').textContent = log.date ? `– ${log.date}` : '';
+  document.getElementById('logDetailContent').textContent = JSON.stringify(log, null, 2);
+  document.getElementById('logDetailModal').classList.remove('hidden');
+}
+
+function closeLogDetail() {
+  document.getElementById('logDetailModal').classList.add('hidden');
 }
 
 // ─── Compare ──────────────────────────────────────────────────────────────────
@@ -1673,33 +2036,50 @@ async function loadCompare() {
     const data = await (await fetch('/api/compare')).json();
     const runs  = Object.keys(data);
 
-    // Build chart with individual date labels per dataset
+    // Einheitliche, chronologisch sortierte Datumsliste aus allen Runs
+    const allDatesSet = new Set();
+    runs.forEach(run => {
+      (data[run].history || []).forEach(r => { if (r.date) allDatesSet.add(r.date); });
+    });
+    const labels = [...allDatesSet].sort();
+
     destroyChart('compareChart');
     const datasets = runs.map((run, i) => {
-      const hist = data[run].history || [];
+      const hist    = data[run].history || [];
+      // Datum → Equity-Map für diesen Run
+      const equityByDate = {};
+      hist.forEach(r => { equityByDate[r.date] = parseFloat(r.equity); });
       return {
         label: run,
-        data: hist.map(r => ({ x: r.date, y: parseFloat(r.equity) })),
+        data: labels.map(d => equityByDate[d] ?? null),  // null für fehlende Tage
         borderColor: PALETTE[i % PALETTE.length],
         backgroundColor: 'transparent',
         tension: 0.3, borderWidth: 2,
-        pointRadius: 0, pointHoverRadius: 5,
+        pointRadius: labels.length < 60 ? 2 : 0,
+        pointHoverRadius: 5,
+        spanGaps: true,   // Lücken zwischen fehlenden Tagen überbrücken
       };
     });
 
     charts.compareChart = new Chart(document.getElementById('compareChart').getContext('2d'), {
       type: 'line',
-      data: { datasets },
+      data: { labels, datasets },
       options: {
         ...BASE_OPTS,
         interaction: { mode: 'index', intersect: false },
-        parsing: false,
         scales: {
           ...BASE_OPTS.scales,
-          x: { type: 'category', ...BASE_OPTS.scales.x },
+          x: {
+            ...BASE_OPTS.scales.x,
+            ticks: {
+              ...BASE_OPTS.scales.x.ticks,
+              maxTicksLimit: 12,
+              maxRotation: 30,
+            },
+          },
           y: {
             ...BASE_OPTS.scales.y,
-            ticks: { ...BASE_OPTS.scales.y.ticks, callback: v => '$' + v.toLocaleString() }
+            ticks: { ...BASE_OPTS.scales.y.ticks, callback: v => '€' + v.toLocaleString('de-DE') }
           }
         }
       }
@@ -1735,7 +2115,12 @@ async function triggerWorkflow() {
     const res  = await fetch('/api/run-workflow', { method: 'POST' });
     const json = await res.json();
     if (!json.ok) showError('Workflow konnte nicht gestartet werden', json.message);
-    else toast(json.message || 'Workflow started', true);
+    else {
+      toast(json.message || 'Workflow started', true);
+      document.getElementById('logOutputWorkflow').innerHTML = '<span class="text-gray-600">Starte …</span>';
+      switchLogTab('workflow');
+      toggleLogPanel(true);
+    }
   } catch (e) {
     showError('Workflow-Netzwerkfehler', e.message);
   } finally {
@@ -1849,7 +2234,8 @@ async function confirmBacktest() {
       btn.innerHTML = '<i class="fas fa-flask text-[11px]"></i> Run Backtest';
     } else {
       toast(json.message || 'Backtest started', true);
-      document.getElementById('logOutput').innerHTML = '<span class="text-gray-600">Starte …</span>';
+      document.getElementById('logOutputBacktest').innerHTML = '<span class="text-gray-600">Starte …</span>';
+      switchLogTab('backtest');
       toggleLogPanel(true);
     }
   } catch (e) {

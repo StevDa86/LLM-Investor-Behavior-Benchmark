@@ -79,6 +79,17 @@ Thumbs.db
 *.key
 *.crt
 
+# ======================
+# All json files under user_side
+# ======================
+user_side/*.json
+
+# ======================
+# Runtime run data (portfolios, logs, research reports)
+# Generated at runtime – must not be committed
+# ======================
+user_side/runs/
+
 # API key store (encrypted, but must never be committed)
 secrets.key
 secrets.json
