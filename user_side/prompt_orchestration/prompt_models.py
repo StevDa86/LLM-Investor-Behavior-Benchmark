@@ -74,7 +74,7 @@ def prompt_chatgpt(text: str, model: str = "gpt-4.1-mini") -> str:
 
 def prompt_openrouter(
     text: str,
-    model: str = "stepfun/step-3.5-flash:free",
+    model: str = "openrouter/owl-alpha",
     log_fn=print,
     cancel_event: threading.Event | None = None,
 ) -> str:

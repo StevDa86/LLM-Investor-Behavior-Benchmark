@@ -35,7 +35,7 @@ KNOWN_KEYS: list[dict] = [
     {
         "name":  "OPENROUTER_API_KEY",
         "label": "OpenRouter API Key",
-        "hint":  "Required for OpenRouter models (e.g. stepfun/step-3.5-flash:free) — free tier at openrouter.ai",
+        "hint":  "Required for OpenRouter models (e.g. openrouter/owl-alpha) — free tier at openrouter.ai",
         "url":   "https://openrouter.ai/keys",
     },
     {
