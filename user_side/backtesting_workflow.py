@@ -184,16 +184,24 @@ def smallcap_backtest(
     date_range = pd.date_range(start=start, end=end, freq="D")
 
     # ── Inherit run config from disk (before potential reset) ────────────────
-    config_path = Path(run_dir) / "config.json"
-    run_config: dict = {}
-    if config_path.exists():
-        try:
-            run_config = json.loads(config_path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    starting_cash    = float(run_config.get("starting_cash",   STARTING_CASH_DEFAULT))
-    commission       = float(run_config.get("commission",       COMMISSION_DEFAULT))
-    market_calendar  = str  (run_config.get("market_calendar",  MARKET_CALENDAR_DEFAULT))
+    # When reset_on_start=True we always use the hardcoded defaults so that a
+    # stale config.json (e.g. written with old 100 EUR values) can never
+    # "poison" the freshly-reset run.
+    if reset_on_start:
+        starting_cash   = STARTING_CASH_DEFAULT
+        commission      = COMMISSION_DEFAULT
+        market_calendar = MARKET_CALENDAR_DEFAULT
+    else:
+        config_path = Path(run_dir) / "config.json"
+        run_config: dict = {}
+        if config_path.exists():
+            try:
+                run_config = json.loads(config_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        starting_cash    = float(run_config.get("starting_cash",   STARTING_CASH_DEFAULT))
+        commission       = float(run_config.get("commission",       COMMISSION_DEFAULT))
+        market_calendar  = str  (run_config.get("market_calendar",  MARKET_CALENDAR_DEFAULT))
 
     # ── Optional: Run-Verzeichnis zurücksetzen ───────────────────────────────
     if reset_on_start:
