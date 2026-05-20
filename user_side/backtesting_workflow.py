@@ -12,6 +12,10 @@ from pathlib import Path
 
 MODELS = ["groq", "openrouter", "gemini"]
 
+STARTING_CASH_DEFAULT   = 1_000.0
+COMMISSION_DEFAULT      = 1.0
+MARKET_CALENDAR_DEFAULT = "NYSE"
+
 # Wie viele Tage historische Daten für Backtests geladen werden.
 HISTORY_WINDOW_DAYS = 14
 
@@ -63,8 +67,8 @@ def main():
 
 
 # -------------------------------------------------------------------
-# SMALL-CAP BACKTEST
-# Worldwide small-caps ≤ 10 EUR, 100 EUR capital, 1 EUR/trade fee
+# BACKTEST
+# Worldwide stocks ≤ 100 EUR, 1.000 EUR capital, 1 EUR/trade fee
 # Free AI via Groq (set GROQ_API_KEY environment variable first)
 # Backtesting period: rolling last HISTORY_WINDOW_DAYS days (default 14)
 #                     override with start= and end= parameters
@@ -187,9 +191,9 @@ def smallcap_backtest(
             run_config = json.loads(config_path.read_text(encoding="utf-8"))
         except Exception:
             pass
-    starting_cash    = float(run_config.get("starting_cash",   100.0))
-    commission       = float(run_config.get("commission",       1.0))
-    market_calendar  = str  (run_config.get("market_calendar",  "XETR"))
+    starting_cash    = float(run_config.get("starting_cash",   STARTING_CASH_DEFAULT))
+    commission       = float(run_config.get("commission",       COMMISSION_DEFAULT))
+    market_calendar  = str  (run_config.get("market_calendar",  MARKET_CALENDAR_DEFAULT))
 
     # ── Optional: Run-Verzeichnis zurücksetzen ───────────────────────────────
     if reset_on_start:

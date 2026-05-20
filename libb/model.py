@@ -27,7 +27,7 @@ class LIBBmodel:
     Stateful trading model that manages portfolio data, metrics, research,
     and daily execution for a single run date.
     """
-    def __init__(self, model_path: Path | str, starting_cash: float = 10_0,
+    def __init__(self, model_path: Path | str, starting_cash: float = 1_000.0,
                  run_date: str | date | None = None,
                  commission: float = 0.0,
                  market_calendar: str = "NYSE"):
